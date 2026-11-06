@@ -1,0 +1,217 @@
+{
+ "_note": "Tiles: 1-9 + m(万)/p(饼)/s(条), honors 东南西北中发白. Kongs list all 4 tiles (a face-down tile counts as the kong tile). Flowers are not listed. win=null means do not score the win decision. uncertain=true means the human reading itself is not sure. Readings were made by Claude from the images (not by a human); g08/g09/w13/w15/w17 corrected on 2026-10-26 after zoomed re-check.",
+ "photos": [
+  {
+   "id": "g01",
+   "file": "github/01_实拍_14张_清一色和牌.jpg",
+   "tiles": "1p 1p 1p 2p 2p 3p 3p 4p 4p 5p 5p 6p 6p 7p",
+   "win": true
+  },
+  {
+   "id": "g02",
+   "file": "github/02_实拍_14张_未和.jpg",
+   "tiles": "3s 3m 8p 5s 3s 7s 南 4m 5s 2m 发 3m 9m 9m",
+   "win": false
+  },
+  {
+   "id": "g03",
+   "file": "github/03_实拍_14张_未和.jpg",
+   "tiles": "北 北 2p 3p 5p 6p 7p 3m 4m 4m 5m 5m 6m 9p",
+   "win": false
+  },
+  {
+   "id": "g04",
+   "file": "github/04_实拍_13张_听牌.jpg",
+   "tiles": "1s 2s 3s 6s 7s 8s 5m 7m 白 白 3p 4p 5p",
+   "win": false
+  },
+  {
+   "id": "g05",
+   "file": "github/05_实拍_13张.jpg",
+   "tiles": "1m 1m 2m 2m 3m 6m 6m 7p 8p 9p 4s 5s 7s",
+   "win": false,
+   "uncertain": true
+  },
+  {
+   "id": "g06",
+   "file": "github/06_实拍_13张.jpg",
+   "tiles": "1m 1m 1p 3p 3p 7p 7p 4s 4s 5s 南 南 5p",
+   "win": false
+  },
+  {
+   "id": "g07",
+   "file": "github/07_实拍_14张_手牌特写.jpg",
+   "tiles": "2p 3p 2p 2m 3m 4m 1p 1p 5p 1s 2s 3s 3p 5p",
+   "win": true,
+   "note": "README 写的是未和，但按读到的牌 123p 123p 234m 123s + 55p 其实是和牌"
+  },
+  {
+   "id": "g08",
+   "file": "github/08_实拍_13张_自动麻将桌杂乱背景.jpg",
+   "tiles": "发 发 发 9s 8s 7s 4s 2s 北 北 1p 2p 3p",
+   "win": false,
+   "note": "2026-10-26 放大复核后修正标准答案"
+  },
+  {
+   "id": "g09",
+   "file": "github/09_实拍_14张_红桌布两排.jpg",
+   "tiles": "2s 2s 4s 5s 6s 7s 8s 3m 5m 8m 8m 8p 9p 9p",
+   "win": false,
+   "note": "2026-10-26 放大复核后修正标准答案"
+  },
+  {
+   "id": "g10",
+   "file": "github/10_渲染图_14张_文件名即答案.png",
+   "tiles": "3m 4m 6m 7m 2p 3p 5p 6p 5s 5s 7s 8s 东 东",
+   "win": false
+  },
+  {
+   "id": "w01",
+   "file": "01.jpg",
+   "tiles": "1s 9s 1m 9m 9p 东 南 西 西 北 发 白 中 1p",
+   "win": true,
+   "uncertain": true
+  },
+  {
+   "id": "w02",
+   "file": "02.jpg",
+   "tiles": "1m 2m 3m 4m 5m 5m 5m 6m 6m 7m 7m 8m 9m",
+   "win": false,
+   "uncertain": true,
+   "note": "照片里只有 13 张，和的那张不在这排"
+  },
+  {
+   "id": "w03",
+   "file": "03.jpg",
+   "tiles": "5s 5s 5s 东 东 东 东 9p 9p 9p 1m 1m 1m 4p 4p",
+   "win": true,
+   "note": "东暗杠，一张扣着"
+  },
+  {
+   "id": "w04",
+   "file": "04.jpg",
+   "tiles": "5s 5s 5s 东 东 东 东 9p 9p 9p 1m 1m 1m 4p 4p",
+   "win": true
+  },
+  {
+   "id": "w05",
+   "file": "05.jpg",
+   "tiles": "5s 5s 5s 东 东 东 东 9p 9p 9p 1m 1m 1m 4p 4p",
+   "win": true
+  },
+  {
+   "id": "w06",
+   "file": "06.jpg",
+   "tiles": "5s 5s 5s 东 东 东 9p 9p 9p 1m 1m 1m 4p 4p",
+   "win": true
+  },
+  {
+   "id": "w07",
+   "file": "07.jpg",
+   "tiles": "1p 9p 1m 9m 1s 9s 白 东 南 西 北 中 发 白",
+   "win": true
+  },
+  {
+   "id": "w08",
+   "file": "08.jpg",
+   "tiles": "2s 2s 2p 2p 2p 4p 4p 4p 4m 4m 4m 6s 6s 6s",
+   "win": true
+  },
+  {
+   "id": "w09",
+   "file": "09.jpg",
+   "tiles": "1s 1s 1s 3s 3s 3s 8s 8s 8s 2s 2s 2s 4s 4s",
+   "win": true,
+   "note": "另有 3 张花牌"
+  },
+  {
+   "id": "w10",
+   "file": "10.jpg",
+   "tiles": "1p 2p 3p 4p 5p 6p 6p 7p 8p 7p 8p 9p 2p 2p",
+   "win": true
+  },
+  {
+   "id": "w11",
+   "file": "11.jpg",
+   "tiles": "中 中 中 发 发 发 白 白 白 4p 5p 6p 8m 8m",
+   "win": true
+  },
+  {
+   "id": "w12",
+   "file": "12.jpg",
+   "tiles": "东 东 东 南 南 南 西 西 西 北 北 北 2m 2m",
+   "win": true
+  },
+  {
+   "id": "w13",
+   "file": "13.jpg",
+   "tiles": "中 中 中 5s 5s 5s 西 西 西 9m 9m 9m 发 发",
+   "win": true,
+   "note": "2026-10-26 放大复核后修正标准答案"
+  },
+  {
+   "id": "w14",
+   "file": "14.jpg",
+   "tiles": "1p 1p 1p 1s 1s 1s 9m 9m 9m 中 中 中 东 东",
+   "win": true
+  },
+  {
+   "id": "w15",
+   "file": "15.jpg",
+   "tiles": "1s 2s 3s 5s 5s 5s 6s 7s 8s 东 东 东 9s 9s",
+   "win": true,
+   "note": "2026-10-26 放大复核后修正标准答案"
+  },
+  {
+   "id": "w16",
+   "file": "16.jpg",
+   "tiles": "1p 1p 1p 9p 9p 9p 1s 1s 1s 9m 9m 9m 9s 9s",
+   "win": true
+  },
+  {
+   "id": "w17",
+   "file": "17.jpg",
+   "tiles": "1s 2s 3s 5s 5s 5s 6s 6s 6s 6s 7s 8s 9s 9s",
+   "win": true,
+   "note": "2026-10-26 放大复核后修正标准答案"
+  },
+  {
+   "id": "w18",
+   "file": "18.jpg",
+   "tiles": "中 中 中 中 6s 6s 6s 6s 西 西 西 西 6p 6p 6p 6p 8m 8m",
+   "win": true
+  },
+  {
+   "id": "w19",
+   "file": "19.jpg",
+   "tiles": "中 中 中 发 发 白 白 白 2m 3m 4m 5s 5s 5s",
+   "win": true
+  },
+  {
+   "id": "w20",
+   "file": "20.jpg",
+   "tiles": "东 东 南 南 南 西 西 西 北 北 北 9m 9m 9m",
+   "win": true
+  },
+  {
+   "id": "w21",
+   "file": "21.jpg",
+   "tiles": "1p 2p 3p 4p 5p 6p 7p 8p 9p 8m 8m 8m 白 白",
+   "win": true
+  },
+  {
+   "id": "w23",
+   "file": "23.jpg",
+   "tiles": "1p 1p 1p 2p 3p 4p 5p 6p 7p 8p 9p 9p 9p",
+   "win": false,
+   "note": "九莲宝灯听牌，只有 13 张"
+  },
+  {
+   "id": "w24",
+   "file": "24.jpg",
+   "tiles": "1p 9p 1s 9s 1m 9m 东 南 西 北 中 发 白",
+   "win": false,
+   "note": "十三幺 13 面听，没有对子"
+  }
+ ]
+}

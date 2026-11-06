@@ -1,0 +1,31 @@
+# 测试照片、参考牌面图没有可再分发的许可证，模型权重在本地下载，都不进仓库（见 data/README.md）
+/data/**/*.jpg
+/data/**/*.jpeg
+/data/**/*.png
+/tools/**/*.jpg
+/tools/**/*.jpeg
+/tools/**/*.png
+*.onnx
+# 端侧认牌模型（开源权重转的 Core ML）只放在本地，见 app/README.md
+*.mlpackage
+*.mlmodel
+*.mlmodelc
+app/MajiangApp/Resources/Models/
+# 开发版自动带进手机的 Gemini Key（编译前从 ~/.config/gemini/api_key 复制过来），绝不进仓库
+app/MajiangApp/Resources/DevSecrets/
+
+# 脚本默认输出目录；要留档的结果手动放进 research/results/
+/tools/*/results/
+
+__pycache__/
+*.pyc
+.DS_Store
+.env
+api_key
+
+# Swift
+app/MajiangKit/.build/
+app/MajiangKit/.swiftpm/
+*.xcuserstate
+xcuserdata/
+DerivedData/
