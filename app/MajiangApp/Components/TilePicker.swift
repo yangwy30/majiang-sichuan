@@ -1,7 +1,7 @@
 import SwiftUI
 import MajiangKit
 
-/// 34 种牌的选择面板：万、条、饼各一行，字牌一行。
+/// 27 种川麻序数牌的选择面板：万、条、筒各一行（无字牌、无花牌）。
 struct TilePickerGrid: View {
     var selected: Tile?
     var onPick: (Tile) -> Void
@@ -10,7 +10,7 @@ struct TilePickerGrid: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach([Suit.characters, .bamboo, .dots, .honors], id: \.self) { suit in
+            ForEach(Suit.sichuan, id: \.self) { suit in
                 LazyVGrid(columns: columns, spacing: 6) {
                     ForEach(Tile.all.filter { $0.suit == suit }, id: \.self) { tile in
                         Button {
@@ -61,13 +61,13 @@ struct TileEditSheet: View {
     }
 }
 
-/// 加一组亮在桌上的牌（吃、碰、杠）。
+/// 加一组亮在桌上的牌（川麻不能吃牌，仅支持碰、明杠、暗杠）。
 struct MeldEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     var onAdd: (Meld) -> Void
 
     enum Kind: String, CaseIterable, Identifiable {
-        case chow = "吃", pung = "碰", kong = "明杠", concealedKong = "暗杠"
+        case pung = "碰", kong = "明杠", concealedKong = "暗杠"
         var id: String { rawValue }
     }
 
@@ -78,7 +78,7 @@ struct MeldEditSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     SegmentedSwitch(options: Kind.allCases.map { ($0, $0.rawValue) }, selection: $kind)
-                    Text(kind == .chow ? "选这组里最小的那张（567 饼就选 5 饼）" : "选是哪张牌")
+                    Text("选是哪张牌（川麻不可吃牌，仅记录碰、明杠、暗杠）")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
                     TilePickerGrid(selected: nil) { tile in
@@ -92,7 +92,7 @@ struct MeldEditSheet: View {
                 .padding(.vertical, 12)
             }
             .page()
-            .navigationTitle("加一组亮在桌上的牌")
+            .navigationTitle("加一组碰 / 杠")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 NavClose { dismiss() }
@@ -102,7 +102,6 @@ struct MeldEditSheet: View {
 
     private func makeMeld(_ tile: Tile) -> Meld? {
         switch kind {
-        case .chow: return Meld.chow(tile)
         case .pung: return Meld.pung(tile)
         case .kong: return Meld.kong(tile, concealed: false)
         case .concealedKong: return Meld.kong(tile, concealed: true)

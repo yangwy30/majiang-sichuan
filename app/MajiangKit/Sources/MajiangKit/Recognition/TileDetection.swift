@@ -1,7 +1,7 @@
 import Foundation
 
 // 端侧认牌：检测模型（YOLO 类）输出每张牌的框和类别，这里把它解码、去掉画面里别人的牌，排成手牌。
-// 只是纯逻辑，跑模型的部分在 CoreMLTileDetector（只在苹果平台编译），这样 Linux 上也能测。
+// 四川麻将仅包含万、条、筒 27 种序数牌（共 108 张），解码时直接在三门序数牌内取最高置信度候选，自动过滤字牌/花牌误检。
 
 /// 图片像素坐标里的一个框，左上角是原点。
 public struct DetectionBox: Hashable, Sendable {
@@ -39,7 +39,7 @@ public struct DetectionBox: Hashable, Sendable {
 public struct TileDetection: Hashable, Sendable {
     public enum Label: Hashable, Sendable {
         case tile(Tile)
-        /// 花牌（春夏秋冬梅兰竹菊），只计数量。
+        /// 花牌（春夏秋冬梅兰竹菊），川麻不用，仅用于兼容模型类别表。
         case flower
     }
 
@@ -119,7 +119,7 @@ public struct Letterbox: Hashable, Sendable {
 
 public enum YOLOv8Decoder {
     /// 解码 YOLOv8 检测头的原始输出：形状 `[4 + 类别数, anchors]`，按行存（先 anchors 个 cx，再 anchors 个 cy …）。
-    /// 每个 anchor 取分数最高的类别，过阈值后做不分类别的 NMS（和 Python 版 `cv2.dnn.NMSBoxes` 一样）。
+    /// 四川麻将仅含万、筒、条三门序数牌，解码时仅在三门序数牌候选内取最高置信度，自动屏蔽字牌与花牌误检。
     public static func decode(_ output: UnsafeBufferPointer<Float>, anchors: Int, labels: [TileDetection.Label?],
                               letterbox: Letterbox, threshold: Double, iouThreshold: Double = 0.45) -> [TileDetection] {
         let classes = output.count / anchors - 4
@@ -127,12 +127,13 @@ public enum YOLOv8Decoder {
         var candidates: [(box: DetectionBox, score: Double, cls: Int)] = []
         for a in 0..<anchors {
             var best = -Float.infinity
-            var cls = 0
+            var cls = -1
             for c in 0..<classes {
+                guard c < labels.count, case .tile(let tile)? = labels[c], tile.isNumbered else { continue }
                 let s = output[(4 + c) * anchors + a]
                 if s > best { best = s; cls = c }
             }
-            guard Double(best) >= threshold else { continue }
+            guard cls >= 0, Double(best) >= threshold else { continue }
             let cx = Double(output[a]), cy = Double(output[anchors + a])
             let w = Double(output[2 * anchors + a]), h = Double(output[3 * anchors + a])
             let box = DetectionBox(minX: cx - w / 2, minY: cy - h / 2, maxX: cx + w / 2, maxY: cy + h / 2)
@@ -164,7 +165,7 @@ public enum YOLOv8Decoder {
         return kept
     }
 
-    /// 第一遍检测后，把牌所在的区域（四周留些边）裁出来放大再检测一遍，小牌会认得更准（照搬 majiang_calculator）。
+    /// 第一遍检测后，把牌所在的区域（四周留些边）裁出来放大再检测一遍，小牌会认得更准。
     /// 牌已经占满大半张图时不用再裁，返回 nil。
     public static func refinementRegion(for detections: [TileDetection], imageWidth: Int, imageHeight: Int) -> DetectionBox? {
         guard !detections.isEmpty else { return nil }
@@ -185,13 +186,12 @@ public enum YOLOv8Decoder {
 
 /// 把检测到的牌排成手牌：按行分组，留下主要那一排（和挨着它、大小差不多的几排），
 /// 去掉画面边上别人的牌、牌河里的散牌；每排从左到右，排与排从上到下。
-/// 端侧模型分不出吃碰杠，所有牌都当立牌，副露交给 Gemini 或用户。
+/// 四川麻将自动过滤掉非万筒条序数牌。
 public enum TileLayout {
     public static func recognition(from detections: [TileDetection], source: String = "端侧") -> Recognition {
-        let tiles = detections.filter { $0.tile != nil }
+        let tiles = detections.filter { $0.tile?.isNumbered == true }
         let hand = handTiles(in: tiles)
-        let flowers = nearbyFlowers(detections.filter { $0.label == .flower }, hand: hand)
-        var recognition = Recognition(concealed: hand.compactMap(\.tile), flowerCount: flowers, source: source)
+        var recognition = Recognition(concealed: hand.compactMap(\.tile), flowerCount: 0, source: source)
         let dropped = tiles.count - hand.count
         if dropped > 0 {
             recognition.notes.append("画面里还有 \(dropped) 张别的牌，没算进去")
@@ -199,19 +199,11 @@ public enum TileLayout {
         return recognition
     }
 
-    /// 花牌一般摆在手牌前后，大小和手牌差不多的才算。
-    static func nearbyFlowers(_ flowers: [TileDetection], hand: [TileDetection]) -> Int {
-        guard !hand.isEmpty else { return 0 }
-        let tileHeight = median(hand.map(\.box.height))
-        let top = hand.map(\.box.minY).min()! - 3 * tileHeight
-        let bottom = hand.map(\.box.maxY).max()! + 3 * tileHeight
-        return flowers.filter { (0.6...1.6).contains($0.box.height / tileHeight) && (top...bottom).contains($0.box.midY) }.count
-    }
-
-    /// 留下手牌，按阅读顺序排好（只给牌，不含花牌）。
+    /// 留下手牌，按阅读顺序排好（只保留万、条、筒序数牌）。
     public static func handTiles(in detections: [TileDetection]) -> [TileDetection] {
-        guard !detections.isEmpty else { return [] }
-        let rows = groupIntoRows(detections)
+        let numbered = detections.filter { $0.tile?.isNumbered == true }
+        guard !numbered.isEmpty else { return [] }
+        let rows = groupIntoRows(numbered)
         guard let main = rows.max(by: { ($0.count, median($0.map(\.box.height))) < ($1.count, median($1.map(\.box.height))) })
         else { return [] }
         let tileHeight = median(main.map(\.box.height))
@@ -230,7 +222,7 @@ public enum TileLayout {
             let sized = row.filter { (0.6...1.6).contains($0.box.height / tileHeight) }
             let segments = splitByGaps(sized, maxGap: 2.5 * tileWidth)
             if isMain {
-                // 主排里最长的一段是手牌；别的段至少 3 张才留（摆在旁边的吃碰杠）
+                // 主排里最长的一段是手牌；别的段至少 3 张才留（摆在旁边的碰杠）
                 let longest = segments.max { $0.count < $1.count } ?? []
                 result += segments.filter { $0 == longest || $0.count >= 3 }.flatMap { $0 }
             } else {

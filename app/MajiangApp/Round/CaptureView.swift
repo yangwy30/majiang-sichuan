@@ -45,7 +45,7 @@ struct CaptureView: View {
         .frame(maxWidth: .infinity)
         .background(Theme.darkroom.ignoresSafeArea())
         .foregroundStyle(.white)
-        .navigationTitle("谁和了？")
+        .navigationTitle(flow.isTingCheck ? "拍照查大叫 · \(flow.game.players[flow.winner].name)" : "谁胡了？")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.darkroom, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -101,21 +101,22 @@ struct CaptureView: View {
     private var winnerPicker: some View {
         HStack(spacing: 8) {
             ForEach(0..<4, id: \.self) { i in
-                // 不预先选谁：标题就在问「谁和了？」，没点也能拍，到核对页再选
+                let active = flow.isPlayerActive(i) || flow.isTingCheck
                 let on = flow.winnerChosen && flow.winner == i
                 Button {
                     flow.pickWinner(i)
                 } label: {
-                    Text(flow.game.players[i].name)
+                    Text(active ? flow.game.players[i].name : "\(flow.game.players[i].name)·已胡")
                         .font(.system(size: 15, weight: .medium))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, minHeight: 38)
-                        .foregroundStyle(on ? Theme.ink : .white)
-                        .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                        .foregroundStyle(on ? Theme.ink : (active ? .white : .white.opacity(0.35)))
+                        .background(on ? Color.white : Color.white.opacity(active ? 0.12 : 0.05), in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(!active || flow.isTingCheck)
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
@@ -155,7 +156,8 @@ struct CaptureView: View {
                     .padding(.horizontal, 18)
                 VStack {
                     Spacer()
-                    Text(cameraOn || model.effectiveRecognitionMode == .demo || model.demoScreen != nil ? "手牌推倒排成一排，和的那张放最右"
+                    Text(cameraOn || model.effectiveRecognitionMode == .demo || model.demoScreen != nil
+                         ? (flow.isTingCheck ? "把未胡牌的 13 张牌排成一排，自动查花猪与大叫" : "手牌推倒排成一排，胡的那张放最右")
                          : "这台设备没有相机，从左下角的相册选一张")
                         .font(.system(size: 14))
                         .foregroundStyle(.white.opacity(0.85))

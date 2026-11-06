@@ -24,13 +24,13 @@ final class RecognitionTests: XCTestCase {
         }
     }
 
-    func testGeminiParsesConcealedAndMelds() async throws {
-        let http = FakeHTTP(replies: [#"{"concealed":["1m","2m","3m","5p","5p"],"melds":[{"kind":"pung","tiles":["东","东","东"]},{"kind":"concealed_kong","tiles":["9s","9s","9s","9s"]},{"kind":"chow","tiles":["4p","3p","2p"]}],"flowers":2}"#])
+    func testGeminiParsesConcealedAndMeldsAndFiltersHonors() async throws {
+        let http = FakeHTTP(replies: [#"{"concealed":["1m","2m","3m","5p","5p","东"],"melds":[{"kind":"pung","tiles":["8p","8p","8p"]},{"kind":"concealed_kong","tiles":["9m","9m","9m","9m"]},{"kind":"pung","tiles":["东","东","东"]}],"flowers":2}"#])
         let recognizer = GeminiRecognizer(configuration: GeminiConfiguration(endpoint: .direct(FixedKey())), http: http)
         let result = try await recognizer.recognize(RecognitionRequest(image: Data([0xFF, 0xD8])))
-        XCTAssertEqual(result.concealed.map(\.tile), Tile.parseList("123m55p"))
-        XCTAssertEqual(result.melds, [.pung(Tile(.honors, 1)), .kong(Tile(.bamboo, 9), concealed: true), .chow(Tile(.dots, 2))!])
-        XCTAssertEqual(result.flowerCount, 2)
+        XCTAssertEqual(result.concealed.map(\.tile), Tile.parseList("123m55p"), "字牌自动过滤")
+        XCTAssertEqual(result.melds, [.pung(Tile(.dots, 8)), .kong(Tile(.characters, 9), concealed: true)])
+        XCTAssertEqual(result.flowerCount, 0, "川麻无花牌")
 
         let request = try XCTUnwrap(http.requests.first)
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-goog-api-key"), "test-key")
@@ -122,7 +122,6 @@ final class RecognitionTests: XCTestCase {
     func testRedeemInvite() async throws {
         let ok = FakeHTTP(replies: [#"{"ok":true,"code":"K7MPQ4","dailyLimit":50,"remaining":48}"#], status: 299)
         let proxy = URL(string: "https://relay.example.com/recognize")!
-        // FakeHTTP 只在非 200 时原样返回，这里包一层把状态改成 200
         let redemption = try await InviteCode.redeem("k7mpq4", proxy: proxy, deviceID: "d", http: StatusOverride(base: ok, status: 200))
         XCTAssertEqual(redemption, InviteCode.Redemption(code: "K7MPQ4", dailyLimit: 50, remaining: 48))
         let sent = try XCTUnwrap(ok.requests.first)
@@ -161,9 +160,9 @@ final class RecognitionTests: XCTestCase {
         }
     }
 
-    func testRuleCheckRetriesOnceWithFeedback() async throws {
-        let bad = #"{"concealed":["1p","1p","1p","2p","2p","3p","3p","4p","4p","5p","4p","6p","6p","7p"],"melds":[],"flowers":0}"#
-        let good = #"{"concealed":["1p","1p","1p","2p","2p","3p","3p","4p","4p","5p","5p","6p","6p","7p"],"melds":[],"flowers":0}"#
+    func testRuleCheckRetriesOnceWithFeedbackAndAllows13TileTingHand() async throws {
+        let bad = #"{"concealed":["1p","1p","1p","2p","2p","3p","3p","4p","4p","5p","4p","6p","6p","7p"],"melds":[]}"#
+        let good = #"{"concealed":["1p","1p","1p","2p","2p","3p","3p","4p","4p","5p","5p","6p","6p","7p"],"melds":[]}"#
         let http = FakeHTTP(replies: [bad, good])
         let gemini = GeminiRecognizer(configuration: GeminiConfiguration(endpoint: .direct(FixedKey())), http: http)
         let result = try await RuleCheckedRecognizer(base: gemini).recognize(RecognitionRequest(image: Data()))
@@ -172,6 +171,14 @@ final class RecognitionTests: XCTestCase {
 
         let body = try JSONSerialization.jsonObject(with: http.requests[1].httpBody!) as! [String: Any]
         XCTAssertEqual((body["contents"] as! [Any]).count, 3, "第二次带上一轮回答和原因")
+
+        // 13 张查大叫手牌直接放行，不触发重试
+        let ting13 = #"{"concealed":["1p","1p","1p","2p","3p","4p","5p","6p","7p","8p","9p","9p","9p"],"melds":[]}"#
+        let tingHttp = FakeHTTP(replies: [ting13])
+        let tingGemini = GeminiRecognizer(configuration: GeminiConfiguration(endpoint: .direct(FixedKey())), http: tingHttp)
+        let tingResult = try await RuleCheckedRecognizer(base: tingGemini).recognize(RecognitionRequest(image: Data()))
+        XCTAssertEqual(tingHttp.requests.count, 1, "13 张查大叫手牌不走 14 张胡牌重试")
+        XCTAssertTrue(tingResult.hand.hasValidTenpaiTileCount)
     }
 
     func testDualReadFlagsDisagreementsAndResolverPicksTheWinningOne() async throws {
@@ -187,9 +194,9 @@ final class RecognitionTests: XCTestCase {
 
         let resolution = RecognitionResolver.resolve(merged, context: WinContext(selfDrawn: true))
         XCTAssertEqual(resolution.recommended[9], Tile(.dots, 5))
-        XCTAssertTrue(resolution.result?.contains(.fullFlush) ?? false)
+        XCTAssertTrue(resolution.result?.contains(.qingYiSe) ?? false)
 
-        // 两种读法都能和（5饼、6饼都成和）时不替用户挑
+        // 两种读法都能和（5筒、6筒都成和）时不替用户挑
         var both = merged
         both.concealed[9].alternatives = [Tile(.dots, 6)]
         both.concealed[9].tile = Tile(.dots, 5)

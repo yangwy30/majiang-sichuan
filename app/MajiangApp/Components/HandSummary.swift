@@ -11,9 +11,6 @@ struct FanList: View {
                 FanRow(name: entry.count > 1 ? "\(entry.fan.name) ×\(entry.count)" : entry.fan.name,
                        plain: entry.fan.explanation, points: entry.points)
             }
-            if win.flowerFan > 0 {
-                FanRow(name: "宝牌 ×\(win.flowerFan)", plain: "表宝牌、赤宝牌、里宝牌每张 1 翻，不算进起和役", points: win.flowerFan)
-            }
         }
     }
 }
@@ -33,7 +30,8 @@ private struct FanRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Text("\(points)").font(.system(size: 16).monospacedDigit())
+            Text(points == 0 ? "0 番 (1倍)" : "+\(points) 番")
+                .font(.system(size: 15, weight: .medium).monospacedDigit())
         }
         .padding(.vertical, 11)
         .overlay(alignment: .top) { Hairline() }
@@ -70,10 +68,11 @@ struct DeltaGrid: View {
     }
 }
 
-/// 一手牌排成一行，跟桌上摆的一样：吃碰杠各一组，立牌一组，和的那张单独放在最右，下面一个朱红「和」。
+/// 一手牌排成一行，跟桌上摆的一样：碰杠各一组，立牌一组，胡的那张单独放在最右，下面一个朱红「胡」。
 /// 牌的大小按屏幕宽度算，十四张（有杠时十七八张）都放得下一行。
 struct HandTiles: View {
     var hand: Hand
+    var showWinningMark: Bool = true
     @State private var available: CGFloat = 345
 
     private struct TileGroup: Identifiable {
@@ -88,9 +87,13 @@ struct HandTiles: View {
             TileGroup(id: i, tiles: meld.tiles, mark: meld.kindName)
         }
         var standing = hand.concealed
-        if let i = standing.lastIndex(of: hand.winningTile) { standing.remove(at: i) }
-        if !standing.isEmpty { result.append(TileGroup(id: 100, tiles: standing)) }
-        result.append(TileGroup(id: 200, tiles: [hand.winningTile], mark: "和", isWinning: true))
+        if showWinningMark, hand.hasValidTileCount {
+            if let i = standing.lastIndex(of: hand.winningTile) { standing.remove(at: i) }
+            if !standing.isEmpty { result.append(TileGroup(id: 100, tiles: standing)) }
+            result.append(TileGroup(id: 200, tiles: [hand.winningTile], mark: "胡", isWinning: true))
+        } else {
+            if !standing.isEmpty { result.append(TileGroup(id: 100, tiles: standing)) }
+        }
         return result
     }
 
@@ -112,7 +115,6 @@ struct HandTiles: View {
                     ForEach(Array(group.tiles.enumerated()), id: \.offset) { i, tile in
                         VStack(spacing: 5) {
                             TileFace(tile: tile, width: width)
-                            // 一组吃碰杠只在中间那张下面写一次
                             Text(i == (group.tiles.count - 1) / 2 ? group.mark ?? " " : " ")
                                 .font(.system(size: 12, weight: group.isWinning ? .medium : .regular))
                                 .foregroundStyle(group.isWinning ? Theme.vermilion : Theme.gray)
@@ -122,8 +124,6 @@ struct HandTiles: View {
                 }
             }
         }
-        // minWidth: 0：这一层只按给的宽度算，不被牌排撑宽。不然哪次量大了（iPhone Duo 外屏刚开时侧边状态栏还没让出来），
-        // 牌按大的宽度画、把这一层撑宽，再量还是大的，牌就一直超出屏幕
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
         .accessibilityElement(children: .ignore)
@@ -133,9 +133,13 @@ struct HandTiles: View {
     private var accessibilityText: String {
         var parts = hand.melds.map(\.displayText)
         var standing = hand.concealed
-        if let i = standing.lastIndex(of: hand.winningTile) { standing.remove(at: i) }
-        parts.append(standing.map(\.displayName).joined(separator: " "))
-        parts.append("和 \(hand.winningTile.displayName)")
+        if showWinningMark, hand.hasValidTileCount, let i = standing.lastIndex(of: hand.winningTile) {
+            standing.remove(at: i)
+            parts.append(standing.map(\.displayName).joined(separator: " "))
+            parts.append("胡 \(hand.winningTile.displayName)")
+        } else {
+            parts.append(standing.map(\.displayName).joined(separator: " "))
+        }
         return parts.joined(separator: "，")
     }
 }

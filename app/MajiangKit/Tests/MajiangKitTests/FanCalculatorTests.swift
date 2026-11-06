@@ -2,133 +2,179 @@ import XCTest
 @testable import MajiangKit
 
 final class FanCalculatorTests: XCTestCase {
-    func testYakuTableBasics() {
-        XCTAssertEqual(Fan.riichi.points, 1)
-        XCTAssertEqual(Fan.tanyao.points, 1)
-        XCTAssertEqual(Fan.pinfu.points, 1)
-        XCTAssertEqual(Fan.chiitoitsu.points, 2)
-        XCTAssertEqual(Fan.toitoi.points, 2)
-        XCTAssertEqual(Fan.honitsu.points, 3)
-        XCTAssertEqual(Fan.honitsu.openPoints, 2)
-        XCTAssertEqual(Fan.chinitsu.points, 6)
-        XCTAssertEqual(Fan.chinitsu.openPoints, 5)
-        XCTAssertEqual(Fan.kokushi.points, 13)
-        XCTAssertTrue(Fan.kokushi.isYakuman)
+    func testSichuanFanPointsTable() {
+        XCTAssertEqual(Fan.pingHu.points, 0)
+        XCTAssertEqual(Fan.duiDuiHu.points, 1)
+        XCTAssertEqual(Fan.qingYiSe.points, 2)
+        XCTAssertEqual(Fan.qiDui.points, 2)
+        XCTAssertEqual(Fan.daiYaoJiu.points, 2)
+        XCTAssertEqual(Fan.jinGouDiao.points, 2)
+        XCTAssertEqual(Fan.jiangDui.points, 3)
+        XCTAssertEqual(Fan.qingDui.points, 3)
+        XCTAssertEqual(Fan.longQiDui.points, 3)
+        XCTAssertEqual(Fan.qingQiDui.points, 4)
+        XCTAssertEqual(Fan.qingDaiYao.points, 4)
+        XCTAssertEqual(Fan.qingJinGouDiao.points, 4)
+        XCTAssertEqual(Fan.jiangJinGou.points, 4)
+        XCTAssertEqual(Fan.qingLongQiDui.points, 5)
+        XCTAssertEqual(Fan.tianHu.points, 5)
+        XCTAssertEqual(Fan.diHu.points, 5)
+        XCTAssertEqual(Fan.shiBaLuoHan.points, 6)
+        XCTAssertEqual(Fan.gen.points, 1)
     }
 
-    func testMenzenPinfuTsumo20Fu() throws {
-        // 门前清 · 平和 · 自摸 · 一杯口：20 符 3 翻
-        let hand = Hand(concealed: Tile.parseList("223344m 456p 678s 99p"), winningTile: Tile(.characters, 4))
-        let result = try FanCalculator.score(hand, context: WinContext(selfDrawn: true)).get()
-        XCTAssertTrue(result.contains(.pinfu))
-        XCTAssertTrue(result.contains(.iipeiko))
-        XCTAssertTrue(result.contains(.menzenTsumo))
-        XCTAssertEqual(result.fu, 20)
-        XCTAssertEqual(result.totalFan, 3)
-        XCTAssertTrue(result.meetsMinimum())
+    func testPingHuZeroFanOneMultiplier() throws {
+        // 平胡（缺条）：0 番 1 倍
+        let hand = Hand(concealed: Tile.parseList("123m 456m 789p 234p 55m"), winningTile: Tile(.characters, 5))
+        let result = try FanCalculator.score(hand, context: WinContext()).get()
+        XCTAssertTrue(result.contains(.pingHu))
+        XCTAssertEqual(result.totalFan, 0)
+        XCTAssertEqual(result.baseMultiplier, 1)
     }
 
-    func testMenzenPinfuRon30Fu() throws {
-        // 门前清 · 平和 · 断幺九 · 荣和：30 符 2 翻
-        let hand = Hand(concealed: Tile.parseList("234m 456p 678s 345p 66s"), winningTile: Tile(.characters, 2))
-        let result = try FanCalculator.score(hand, context: WinContext(selfDrawn: false)).get()
-        XCTAssertTrue(result.contains(.pinfu))
-        XCTAssertTrue(result.contains(.tanyao))
-        XCTAssertEqual(result.fu, 30)
+    func testHuaZhuThreeSuitsRejected() {
+        // 万、筒、条三门俱全（花猪）：不能胡牌
+        let hand = Hand(concealed: Tile.parseList("123m 456p 789s 234p 55m"), winningTile: Tile(.characters, 5))
+        XCTAssertTrue(hand.isHuaZhu)
+        XCTAssertFalse(hand.isMissingOneSuit)
+        XCTAssertEqual(FanCalculator.score(hand, context: WinContext()).failure, .missingSuitRequired)
+    }
+
+    func testDuiDuiHuQingDuiJiangDuiAndJinGouDiao() throws {
+        // 对对胡（1 番 2 倍）
+        let duiDui = Hand(melds: [.pung(Tile(.characters, 1))],
+                          concealed: Tile.parseList("333m 666p 999p 44m"),
+                          winningTile: Tile(.characters, 4))
+        let r1 = try FanCalculator.score(duiDui).get()
+        XCTAssertTrue(r1.contains(.duiDuiHu))
+        XCTAssertEqual(r1.totalFan, 1)
+
+        // 清对（清一色 + 对对胡 = 3 番 8 倍）
+        let qingDui = Hand(melds: [.pung(Tile(.dots, 1))],
+                           concealed: Tile.parseList("333p 666p 888p 99p"),
+                           winningTile: Tile(.dots, 9))
+        let r2 = try FanCalculator.score(qingDui).get()
+        XCTAssertTrue(r2.contains(.qingDui))
+        XCTAssertEqual(r2.totalFan, 3)
+
+        // 将对（全部 2/5/8 组成的对对胡 = 3 番 8 倍）
+        let jiangDui = Hand(melds: [.pung(Tile(.characters, 2)), .pung(Tile(.dots, 5))],
+                            concealed: Tile.parseList("888m 222p 55m"),
+                            winningTile: Tile(.characters, 5))
+        let r3 = try FanCalculator.score(jiangDui).get()
+        XCTAssertTrue(r3.contains(.jiangDui))
+        XCTAssertEqual(r3.totalFan, 3)
+
+        // 金钩钓（4 组碰出，单吊将牌 = 2 番 4 倍）
+        let jinGou = Hand(melds: [
+            .pung(Tile(.characters, 1)),
+            .pung(Tile(.characters, 3)),
+            .pung(Tile(.dots, 6)),
+            .pung(Tile(.dots, 9)),
+        ], concealed: Tile.parseList("44m"), winningTile: Tile(.characters, 4))
+        let r4 = try FanCalculator.score(jinGou).get()
+        XCTAssertTrue(r4.contains(.jinGouDiao))
+        XCTAssertEqual(r4.totalFan, 2)
+
+        // 清金钩钓（4 番 16 倍）
+        let qingJinGou = Hand(melds: [
+            .pung(Tile(.dots, 1)),
+            .pung(Tile(.dots, 3)),
+            .pung(Tile(.dots, 6)),
+            .pung(Tile(.dots, 8)),
+        ], concealed: Tile.parseList("99p"), winningTile: Tile(.dots, 9))
+        let r5 = try FanCalculator.score(qingJinGou).get()
+        XCTAssertTrue(r5.contains(.qingJinGouDiao))
+        XCTAssertEqual(r5.totalFan, 4)
+
+        // 将金钩（4 番 16 倍）+ 1 个杠（1 根 +1 番 = 5 番）
+        let jiangJinGou = Hand(melds: [
+            .kong(Tile(.characters, 2), concealed: false),
+            .pung(Tile(.characters, 5)),
+            .pung(Tile(.dots, 2)),
+            .pung(Tile(.dots, 8)),
+        ], concealed: Tile.parseList("55p"), winningTile: Tile(.dots, 5))
+        let r6 = try FanCalculator.score(jiangJinGou).get()
+        XCTAssertTrue(r6.contains(.jiangJinGou))
+        XCTAssertTrue(r6.contains(.gen))
+        XCTAssertEqual(r6.totalFan, 5)
+    }
+
+    func testQiDuiLongQiDuiAndGenDeduplication() throws {
+        // 暗七对（2 番 4 倍）
+        let qiDui = Hand(concealed: Tile.parseList("11m 33m 55m 77m 22p 44p 88p"), winningTile: Tile(.dots, 8))
+        let r1 = try FanCalculator.score(qiDui).get()
+        XCTAssertTrue(r1.contains(.qiDui))
+        XCTAssertFalse(r1.contains(.gen))
+        XCTAssertEqual(r1.totalFan, 2)
+
+        // 龙七对（3 番 8 倍）：含 1 组四张相同的牌，该根已计入龙七对，不重复加第 1 根
+        let longQiDui = Hand(concealed: Tile.parseList("2222m 44m 66m 33p 55p 99p"), winningTile: Tile(.dots, 9))
+        let r2 = try FanCalculator.score(longQiDui).get()
+        XCTAssertTrue(r2.contains(.longQiDui))
+        XCTAssertFalse(r2.contains(.gen), "龙七对自带的 1 根不重复算")
+        XCTAssertEqual(r2.totalFan, 3)
+
+        // 双龙七对（龙七对 3 番 + 额外 1 根 = 4 番 16 倍）
+        let shuangLong = Hand(concealed: Tile.parseList("2222m 4444m 66m 33p 99p"), winningTile: Tile(.dots, 9))
+        let r3 = try FanCalculator.score(shuangLong).get()
+        XCTAssertTrue(r3.contains(.longQiDui))
+        XCTAssertEqual(r3.fans.first(where: { $0.fan == .gen })?.count, 1)
+        XCTAssertEqual(r3.totalFan, 4)
+
+        // 清龙七对（5 番 32 倍）
+        let qingLong = Hand(concealed: Tile.parseList("1111p 22p 44p 66p 77p 99p"), winningTile: Tile(.dots, 9))
+        let r4 = try FanCalculator.score(qingLong).get()
+        XCTAssertTrue(r4.contains(.qingLongQiDui))
+        XCTAssertFalse(r4.contains(.gen))
+        XCTAssertEqual(r4.totalFan, 5)
+    }
+
+    func testGenCountingInStandardHands() throws {
+        // 手牌里有 4 张一样的牌（未开杠：一坎 222m + 顺子 234m）+ 副露碰 5p + 手牌里第 4 张 5p（组成 456p） = 2 根！
+        let hand = Hand(melds: [.pung(Tile(.dots, 5))],
+                        concealed: Tile.parseList("222m 234m 456p 99m"),
+                        winningTile: Tile(.characters, 9))
+        XCTAssertEqual(hand.genCount, 2, "手牌与副露合计满 4 张一样的牌均计 1 根")
+        let result = try FanCalculator.score(hand).get()
+        XCTAssertEqual(result.fans.first(where: { $0.fan == .gen })?.count, 2)
         XCTAssertEqual(result.totalFan, 2)
     }
 
-    func testChiitoitsuFixed25Fu() throws {
-        // 七对子 + 断幺九：固定 25 符 3 翻
-        let hand = Hand(concealed: Tile.parseList("22m 44m 66p 88p 33s 55s 77s"), winningTile: Tile(.bamboo, 7))
-        let result = try FanCalculator.score(hand, context: WinContext(selfDrawn: false)).get()
-        XCTAssertTrue(result.contains(.chiitoitsu))
-        XCTAssertTrue(result.contains(.tanyao))
-        XCTAssertEqual(result.fu, 25)
-        XCTAssertEqual(result.totalFan, 3)
+    func testDaiYaoJiuAndMenQingZhongZhang() throws {
+        // 带幺九（全带幺，2 番）
+        let daiYao = Hand(concealed: Tile.parseList("123m 789m 123p 999p 11m"), winningTile: Tile(.characters, 1))
+        let r1 = try FanCalculator.score(daiYao).get()
+        XCTAssertTrue(r1.contains(.daiYaoJiu))
+        XCTAssertEqual(r1.totalFan, 2)
+
+        // 门清 + 中张（开启可选开关时各 +1 番）
+        let menQingZhongZhang = Hand(concealed: Tile.parseList("234m 456m 345p 678p 55m"), winningTile: Tile(.characters, 5))
+        let ctx = WinContext(allowMenQing: true, allowZhongZhang: true)
+        let r2 = try FanCalculator.score(menQingZhongZhang, context: ctx).get()
+        XCTAssertTrue(r2.contains(.menQing))
+        XCTAssertTrue(r2.contains(.zhongZhang))
+        XCTAssertEqual(r2.totalFan, 2)
     }
 
-    func testFourIdenticalTilesDoNotCountAsChiitoitsu() {
-        // 日麻规定 4 张相同的牌不能算作七对子里的两对
-        let hand = Hand(concealed: Tile.parseList("2222m 44p 66p 88p 33s 55s"), winningTile: Tile(.bamboo, 5))
-        XCTAssertEqual(FanCalculator.score(hand, context: WinContext()).failure, .notAWin)
-    }
+    func testCheckTingHuaZhuNotTingAndDaJiao() {
+        // 1. 13 张三门俱全 -> 花猪
+        let huaZhu13 = Hand(concealed: Tile.parseList("123m 456p 789s 234p 5m"))
+        let c1 = WinAssistant.checkTing(huaZhu13)
+        XCTAssertEqual(c1.status, .huaZhu)
 
-    func testRyanpeikoBeatsChiitoitsu() throws {
-        // 二杯口（3 翻）同时满足 7 个对子，高点法应取二杯口 + 平和（4 翻）而非七对子（2 翻）
-        let hand = Hand(concealed: Tile.parseList("223344m 556677p 88s"), winningTile: Tile(.characters, 4))
-        let result = try FanCalculator.score(hand, context: WinContext(selfDrawn: false)).get()
-        XCTAssertTrue(result.contains(.ryanpeiko))
-        XCTAssertFalse(result.contains(.chiitoitsu))
-        XCTAssertTrue(result.contains(.pinfu))
-        XCTAssertTrue(result.contains(.tanyao))
-        XCTAssertEqual(result.totalFan, 5)
-    }
+        // 2. 13 张缺一门但未下叫
+        let notTing13 = Hand(concealed: Tile.parseList("147m 258m 147p 258p 9p"))
+        let c2 = WinAssistant.checkTing(notTing13)
+        XCTAssertEqual(c2.status, .notTing)
 
-    func testKuisagariOpenHandDecreasesHan() throws {
-        // 清一色：门前 6 翻，副露 5 翻
-        let closed = Hand(concealed: Tile.parseList("1112233445566p 7p"))
-        let closedRes = try FanCalculator.score(closed, context: WinContext(selfDrawn: true)).get()
-        XCTAssertTrue(closedRes.contains(.chinitsu))
-        XCTAssertEqual(closedRes.fans.first(where: { $0.fan == .chinitsu })?.points, 6)
-
-        let open = Hand(melds: [.chow(Tile(.dots, 1))!],
-                        concealed: Tile.parseList("234p 456p 678p 99p"),
-                        winningTile: Tile(.dots, 8))
-        let openRes = try FanCalculator.score(open, context: WinContext(selfDrawn: false)).get()
-        XCTAssertTrue(openRes.contains(.chinitsu))
-        XCTAssertEqual(openRes.fans.first(where: { $0.fan == .chinitsu })?.points, 5)
-    }
-
-    func testDoraDoesNotCountTowardMinimumYaku() throws {
-        // 副露后无役（只有顺子，非断幺、非役牌），即便有 5 张宝牌也不能和（无役）
-        let hand = Hand(melds: [.chow(Tile(.characters, 1))!],
-                        concealed: Tile.parseList("345p 678s 234s 99m"),
-                        winningTile: Tile(.characters, 9))
-        let result = try FanCalculator.score(hand, context: WinContext(flowerCount: 5)).get()
-        XCTAssertEqual(result.fanWithoutFlowers, 0)
-        XCTAssertEqual(result.flowerFan, 5)
-        XCTAssertFalse(result.meetsMinimum(1))
-    }
-
-    func testRiichiAndIppatsuAndDora() throws {
-        // 立直 + 一发 + 宝牌 2：本来无役的门前荣和牌，立直后可和
-        let hand = Hand(concealed: Tile.parseList("123m 345p 678s 234s 99m"), winningTile: Tile(.characters, 9))
-        let context = WinContext(selfDrawn: false, riichi: true, ippatsu: true, flowerCount: 2)
-        let result = try FanCalculator.score(hand, context: context).get()
-        XCTAssertTrue(result.contains(.riichi))
-        XCTAssertTrue(result.contains(.ippatsu))
-        XCTAssertEqual(result.fanWithoutFlowers, 2)
-        XCTAssertEqual(result.totalFan, 4)
-        XCTAssertEqual(result.fu, 40) // 20 副底 + 10 门前荣和 + 2 单骑 = 32 -> 40 符
-        XCTAssertTrue(result.meetsMinimum())
-    }
-
-    func testSuuankouTankiVsShanponRon() throws {
-        // 双碰听牌：荣和 7m 时完成的刻子算明刻，只能算对对和 + 三暗刻（4 翻），自摸才是四暗刻（役满）
-        let shanpon = Hand(concealed: Tile.parseList("111m 333p 555s 777m 99p"), winningTile: Tile(.characters, 7))
-        let ronResult = try FanCalculator.score(shanpon, context: WinContext(selfDrawn: false)).get()
-        XCTAssertFalse(ronResult.contains(.suuankou))
-        XCTAssertTrue(ronResult.contains(.toitoi))
-        XCTAssertTrue(ronResult.contains(.sanankou))
-
-        let tsumoResult = try FanCalculator.score(shanpon, context: WinContext(selfDrawn: true)).get()
-        XCTAssertTrue(tsumoResult.contains(.suuankou))
-        XCTAssertTrue(tsumoResult.isYakuman)
-
-        // 单骑听雀头：荣和也是四暗刻单骑（役满）
-        let tanki = Hand(concealed: Tile.parseList("111m 333p 555s 777m 99p"), winningTile: Tile(.dots, 9))
-        let tankiRon = try FanCalculator.score(tanki, context: WinContext(selfDrawn: false)).get()
-        XCTAssertTrue(tankiRon.contains(.suuankou))
-    }
-
-    func testKokushiMusouYakuman() throws {
-        let hand = Hand(concealed: Tile.parseList("19m 19p 19s 东南西北中发白 1m"), winningTile: Tile(.characters, 1))
-        let result = try FanCalculator.score(hand, context: WinContext(flowerCount: 3)).get()
-        XCTAssertTrue(result.contains(.kokushi))
-        XCTAssertTrue(result.isYakuman)
-        XCTAssertEqual(result.flowerFan, 0, "役满不额外加计宝牌")
-        XCTAssertEqual(result.totalFan, 13)
+        // 3. 13 张查大叫：九莲宝灯清一色听 1~9筒，其中胡 1筒 或 9筒 时凑满 4 张生根（清一色 2 番 + 1 根 = 大叫 3 番）
+        let ting13 = Hand(concealed: Tile.parseList("1112345678999p"))
+        let c3 = WinAssistant.checkTing(ting13)
+        XCTAssertEqual(c3.status, .ting)
+        XCTAssertEqual(c3.waits.count, 9)
+        XCTAssertEqual(c3.maxFan, 3)
+        XCTAssertEqual(c3.bestWait?.tile, Tile(.dots, 1))
     }
 
     func testErrors() {
@@ -138,29 +184,8 @@ final class FanCalculatorTests: XCTestCase {
         let five = Hand(concealed: Tile.parseList("11111m456m789m123p"))
         XCTAssertEqual(FanCalculator.score(five, context: WinContext()).failure, .tileMoreThanFour)
 
-        let noWin = Hand(concealed: Tile.parseList("13579m2468p135s东南"))
+        let noWin = Hand(concealed: Tile.parseList("13579m2468p13579p"))
         XCTAssertEqual(FanCalculator.score(noWin, context: WinContext()).failure, .notAWin)
-    }
-
-    func testWindPungsAndDoubleEast() throws {
-        let hand = Hand(concealed: Tile.parseList("南南南 西西西 123m 7m8m9m 1p1p"), winningTile: Tile(.dots, 1))
-        let context = WinContext(prevalentWind: .south, seatWind: .west)
-        let result = try FanCalculator.score(hand, context: context).get()
-        XCTAssertTrue(result.contains(.prevalentWind))
-        XCTAssertTrue(result.contains(.seatWind))
-
-        // 连风牌（东场东家摸东刻）：同时计场风东 + 自风东 = 2 翻
-        let doubleEast = Hand(concealed: Tile.parseList("东东东 234m 456p 678s 1p1p"), winningTile: Tile(.dots, 1))
-        let eastResult = try FanCalculator.score(doubleEast, context: WinContext(prevalentWind: .east, seatWind: .east)).get()
-        XCTAssertTrue(eastResult.contains(.prevalentWind))
-        XCTAssertTrue(eastResult.contains(.seatWind))
-        XCTAssertEqual(eastResult.fanWithoutFlowers, 2)
-    }
-
-    func testWaitingTiles() {
-        // 九莲宝灯听九面
-        let waits = FanCalculator.waitingTiles(melds: [], standing: Tile.parseList("1112345678999m"))
-        XCTAssertEqual(waits, (1...9).map { Tile(.characters, $0) })
     }
 }
 

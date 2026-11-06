@@ -1,15 +1,14 @@
 import SwiftUI
 import MajiangKit
 
-/// 「这一局」：账本里点开一局和牌。那手牌、和的是哪张、谁打的，番是怎么算的，谁付了多少；
-/// 拍过照的还能看当时那张照片。要改就点右上角「改」，跟以前在账本里直接点开一样。
+/// 「这一局」：账本里点开一局胡牌。那手牌、胡的是哪张、谁打的，番和根是怎么算的，谁付了多少；
+/// 拍过照的还能看当时那张照片。要改就点右上角「改」。
 struct HandDetailView: View {
     @Environment(AppModel.self) private var model
     let gameID: UUID
     let recordID: UUID
 
     @State private var editing = false
-    /// 改局页关掉以后才动账本，免得这一页在改局页底下先变了样。
     @State private var pendingChange: PendingChange?
     @State private var photo: UIImage?
     @State private var showPhoto = false
@@ -26,7 +25,7 @@ struct HandDetailView: View {
                let win = game.records[index].win {
                 content(game, record: game.records[index], win: win, number: index + 1)
             } else {
-                ContentUnavailableView("这一局已经不在账本里了", systemImage: "tray")
+                ContentUnavailableView("这一笔记录已经不在账本里了", systemImage: "tray")
             }
         }
         .page()
@@ -55,24 +54,24 @@ struct HandDetailView: View {
     private func content(_ game: Game, record: HandRecord, win: WinRecord, number: Int) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("第 \(number) 局 · \(game.prevalentWind(ofHand: record.handIndex).name)场 · \(game.players[game.dealer(ofHand: record.handIndex)].name)坐庄")
+                Text("第 \(record.handIndex + 1) 局 · \(game.rules.mode.name) · \(game.players[game.dealer(ofHand: record.handIndex)].name)坐庄")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.gray)
                     .padding(.top, 6)
 
                 HStack(alignment: .firstTextBaseline) {
-                    Text(win.isSelfDrawn ? "\(game.players[win.winner].name)自摸" : "\(game.players[win.winner].name)和")
+                    Text(record.title(in: game))
                         .font(.system(size: 30, weight: .semibold))
                         .tracking(-0.4)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                     Spacer(minLength: 12)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(win.totalFan)")
+                        Text("\(game.rules.paidFan(win))")
                             .font(.system(size: 46, weight: .ultraLight).monospacedDigit())
                             .tracking(-1)
-                        Text("翻").font(Theme.serif(18))
-                        Text("· \(win.fu) 符")
+                        Text("番").font(Theme.serif(18))
+                        Text("· \(game.rules.paidMultiplier(win)) 倍")
                             .font(.system(size: 16, weight: .light).monospacedDigit())
                             .foregroundStyle(Theme.gray)
                     }
@@ -81,12 +80,22 @@ struct HandDetailView: View {
                 .padding(.top, 2)
 
                 if game.rules.paidFan(win) < win.totalFan {
-                    Text("桌规封顶 \(game.rules.fanCap) 翻：\(win.totalFan) 翻按 \(game.rules.fanCap) 算")
+                    Text("桌规封顶 \(game.rules.fanCap) 番：原 \(win.totalFan) 番按 \(game.rules.fanCap) 番算")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Theme.lineSoft, in: Capsule())
+                        .padding(.top, 8)
+                }
+
+                if win.callTransferAmount > 0 {
+                    Text("杠上炮 · 呼叫转移：转走点炮者上一笔杠钱 +\(win.callTransferAmount) 分")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.vermilion)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Theme.vermilion.opacity(0.1), in: Capsule())
                         .padding(.top, 8)
                 }
 
@@ -100,7 +109,6 @@ struct HandDetailView: View {
                             .padding(.top, 4)
                     }
                 } else {
-                    // 没拍照、在账本里直接改成「和了」的局，只有番数
                     Text(win.discarder.map { "\(game.players[$0].name)点的炮。" } ?? "自摸。")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
@@ -133,18 +141,18 @@ struct HandDetailView: View {
                 }
 
                 if win.fanOverride == nil && !win.fans.isEmpty && win.hand != nil {
-                    SectionLabel("役种与宝牌")
+                    SectionLabel("番种与根")
                         .padding(.top, 26)
                         .padding(.bottom, 6)
                     FanList(win: win)
                 } else {
-                    Text("翻数是手填的，没有役种明细。")
+                    Text("番数是手填的，没有番种明细。")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
                         .padding(.top, 18)
                 }
 
-                SectionLabel("这局谁付多少")
+                SectionLabel("这把谁付多少")
                     .padding(.top, 24)
                     .padding(.bottom, 6)
                 DeltaGrid(game: game, deltas: record.deltas)
@@ -167,7 +175,7 @@ struct HandDetailView: View {
         }
         .fullScreenCover(isPresented: $showPhoto) {
             if let photo {
-                HandPhotoView(photo: photo, caption: "第 \(number) 局 · \(record.title(in: game))", date: record.date) {
+                HandPhotoView(photo: photo, caption: "第 \(record.handIndex + 1) 局 · \(record.title(in: game))", date: record.date) {
                     HandPhotos.delete(recordID)
                     self.photo = nil
                 }
@@ -175,7 +183,6 @@ struct HandDetailView: View {
         }
     }
 
-    /// 改成了别的结果（没人和、和错了）或者删掉了，这一页就没东西可看了，回账本。
     private func applyPendingChange() {
         guard let change = pendingChange, var game = model.game(gameID) else { return }
         pendingChange = nil
@@ -256,7 +263,7 @@ struct HandPhotoView: View {
                 dismiss()
             }
         } message: {
-            Text("这一局的牌和分数都还在，只是不能再看照片。")
+            Text("这一把的牌和分数都还在，只是不能再看照片。")
         }
     }
 }

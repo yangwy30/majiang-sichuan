@@ -1,213 +1,137 @@
 import Foundation
 
-/// 立直麻将役种（含役满）。宝牌（含赤宝牌、里宝牌）不计入起和役，单独记在 `ScoringResult.flowerFan`。
+/// 四川麻将（血战到底 / 血流成河）番型与加番项。
+/// 倍数按 $2^{\text{番数}}$ 计算（0 番平胡 = 1 倍，1 番 = 2 倍，2 番 = 4 倍，3 番 = 8 倍，4 番 = 16 倍，5 番 = 32 倍……）。
 public enum Fan: Int, CaseIterable, Codable, Sendable {
-    // 1 翻
-    case riichi = 1
-    case ippatsu
-    case menzenTsumo
-    case tanyao
-    case pinfu
-    case iipeiko
-    case seatWind
-    case prevalentWind
-    case whiteDragon
-    case greenDragon
-    case redDragon
-    case rinshan
-    case chankan
-    case haitei
-    case houtei
+    // 基础牌型番（0 番 — 6 番）
+    case pingHu = 0          // 平胡（基本胡，0 番 1 倍）
+    case duiDuiHu = 1        // 对对胡（碰碰胡，1 番 2 倍）
+    case qingYiSe = 2        // 清一色（2 番 4 倍）
+    case qiDui = 3           // 七对（暗七对，2 番 4 倍）
+    case daiYaoJiu = 4       // 带幺九（全带幺，2 番 4 倍）
+    case jinGouDiao = 5      // 金钩钓（对对胡 + 单吊将，2 番 4 倍）
+    case jiangDui = 6        // 将对（258 对对胡，3 番 8 倍）
+    case qingDui = 7         // 清对（清一色 + 对对胡，3 番 8 倍）
+    case longQiDui = 8       // 龙七对（带 1 根的七对，3 番 8 倍，该根不重复计）
+    case qingQiDui = 9       // 清七对（清一色 + 七对，4 番 16 倍）
+    case qingDaiYao = 10     // 清带幺（清一色 + 带幺九，4 番 16 倍）
+    case qingJinGouDiao = 11 // 清金钩钓（清一色 + 金钩钓，4 番 16 倍）
+    case jiangJinGou = 12    // 将金钩（将对 + 金钩钓，4 番 16 倍）
+    case qingLongQiDui = 13  // 清龙七对（清一色 + 龙七对，5 番 32 倍，首根不重复计）
+    case tianHu = 14         // 天胡（庄家起手胡，5 番 32 倍）
+    case diHu = 15           // 地胡（闲家首巡胡，5 番 32 倍）
+    case shiBaLuoHan = 16    // 十八罗汉（四杠金钩钓，6 番 64 倍）
 
-    // 2 翻
-    case doubleRiichi
-    case sanshokuDoujun
-    case ittsuu
-    case chanta
-    case chiitoitsu
-    case toitoi
-    case sanankou
-    case sankantsu
-    case sanshokuDoukou
-    case honroutou
-    case shousangen
+    // 叠加加番项（每项 +1 番，即翻倍）
+    case gen = 17            // 根（每有 4 张相同的牌 +1 番）
+    case gangShangHua = 18   // 杠上开花（开杠补牌自摸 +1 番）
+    case gangShangPao = 19   // 杠上炮（开杠后打牌点炮 +1 番，触发呼叫转移）
+    case qiangGangHu = 20    // 抢杠胡（抢别人巴杠/弯杠 +1 番）
+    case haiDiLaoYue = 21    // 海底捞月（最后一张自摸 +1 番）
+    case haiDiPao = 22       // 海底炮（最后一张点炮 +1 番）
+    case menQing = 23        // 门清（家规开启时，无碰无明杠 +1 番）
+    case zhongZhang = 24     // 中张 / 断幺九（家规开启时，全 2–8 无幺九 +1 番）
+    case ziMoJiaFan = 25     // 自摸加番（家规选「自摸加番」时 +1 番）
 
-    // 3 翻
-    case ryanpeiko
-    case junchan
-    case honitsu
+    // 兼容旧代码别名
+    public static let fullFlush = Fan.qingYiSe
+    public static let allPungs = Fan.duiDuiHu
+    public static let sevenPairs = Fan.qiDui
+    public static let chickenHand = Fan.pingHu
+    public static let allSimples = Fan.zhongZhang
+    public static let outWithReplacementTile = Fan.gangShangHua
+    public static let robbingTheKong = Fan.qiangGangHu
+    public static let lastTileDraw = Fan.haiDiLaoYue
+    public static let lastTileClaim = Fan.haiDiPao
 
-    // 6 翻
-    case chinitsu
-
-    // 役满（13 翻）
-    case kokushi
-    case suuankou
-    case daisangen
-    case shousuushii
-    case daisuushii
-    case tsuuiisou
-    case chinroutou
-    case ryuuiisou
-    case chuurenPoutou
-    case suukantsu
-    case tenhou
-    case chiihou
-
-    // 兼容别名
-    public static let fullFlush = Fan.chinitsu
-    public static let halfFlush = Fan.honitsu
-    public static let allPungs = Fan.toitoi
-    public static let sevenPairs = Fan.chiitoitsu
-    public static let selfDrawn = Fan.menzenTsumo
-    public static let allSimples = Fan.tanyao
-    public static let pureStraight = Fan.ittsuu
-    public static let mixedTripleChow = Fan.sanshokuDoujun
-    public static let pureDoubleChow = Fan.iipeiko
-    public static let lastTileDraw = Fan.haitei
-    public static let lastTileClaim = Fan.houtei
-    public static let outWithReplacementTile = Fan.rinshan
-    public static let robbingTheKong = Fan.chankan
-    public static let chickenHand = Fan.riichi
-    public static let allTypes = Fan.tanyao
-
-    /// 门前清时的标准翻数（役满按 13 翻计）。
+    /// 该番型对应的番数。
     public var points: Int {
         switch self {
-        case .riichi, .ippatsu, .menzenTsumo, .tanyao, .pinfu, .iipeiko,
-             .seatWind, .prevalentWind, .whiteDragon, .greenDragon, .redDragon,
-             .rinshan, .chankan, .haitei, .houtei:
+        case .pingHu:
+            return 0
+        case .duiDuiHu, .gen, .gangShangHua, .gangShangPao, .qiangGangHu,
+             .haiDiLaoYue, .haiDiPao, .menQing, .zhongZhang, .ziMoJiaFan:
             return 1
-        case .doubleRiichi, .sanshokuDoujun, .ittsuu, .chanta, .chiitoitsu,
-             .toitoi, .sanankou, .sankantsu, .sanshokuDoukou, .honroutou, .shousangen:
+        case .qingYiSe, .qiDui, .daiYaoJiu, .jinGouDiao:
             return 2
-        case .ryanpeiko, .junchan, .honitsu:
+        case .jiangDui, .qingDui, .longQiDui:
             return 3
-        case .chinitsu:
-            return 6
-        case .kokushi, .suuankou, .daisangen, .shousuushii, .daisuushii,
-             .tsuuiisou, .chinroutou, .ryuuiisou, .chuurenPoutou, .suukantsu,
-             .tenhou, .chiihou:
-            return 13
-        }
-    }
-
-    /// 副露（吃、碰、明杠）时的翻数；门前限定役返回 nil。
-    public var openPoints: Int? {
-        switch self {
-        case .riichi, .ippatsu, .menzenTsumo, .pinfu, .iipeiko, .doubleRiichi,
-             .chiitoitsu, .ryanpeiko, .kokushi, .suuankou, .chuurenPoutou, .tenhou, .chiihou:
-            return nil
-        case .sanshokuDoujun, .ittsuu, .chanta:
-            return 1
-        case .junchan, .honitsu:
-            return 2
-        case .chinitsu:
+        case .qingQiDui, .qingDaiYao, .qingJinGouDiao, .jiangJinGou:
+            return 4
+        case .qingLongQiDui, .tianHu, .diHu:
             return 5
-        default:
-            return points
+        case .shiBaLuoHan:
+            return 6
         }
     }
 
-    public var isYakuman: Bool { points == 13 }
-
-    /// 实际计入的翻数（考虑是否门前清）。
-    public func effectivePoints(isMenzen: Bool) -> Int {
-        isMenzen ? points : (openPoints ?? points)
+    /// 是否为封顶大番（天胡、地胡、十八罗汉、清龙七对）。
+    public var isLimitFan: Bool {
+        points >= 5
     }
+
+    public var isYakuman: Bool { isLimitFan }
 
     public var name: String {
         switch self {
-        case .riichi: return "立直"
-        case .ippatsu: return "一发"
-        case .menzenTsumo: return "门前清自摸和"
-        case .tanyao: return "断幺九"
-        case .pinfu: return "平和"
-        case .iipeiko: return "一杯口"
-        case .seatWind: return "自风牌"
-        case .prevalentWind: return "场风牌"
-        case .whiteDragon: return "役牌·白"
-        case .greenDragon: return "役牌·发"
-        case .redDragon: return "役牌·中"
-        case .rinshan: return "岭上开花"
-        case .chankan: return "抢杠"
-        case .haitei: return "海底摸月"
-        case .houtei: return "河底捞鱼"
-        case .doubleRiichi: return "双立直"
-        case .sanshokuDoujun: return "三色同顺"
-        case .ittsuu: return "一气通贯"
-        case .chanta: return "混全带幺九"
-        case .chiitoitsu: return "七对子"
-        case .toitoi: return "对对和"
-        case .sanankou: return "三暗刻"
-        case .sankantsu: return "三杠子"
-        case .sanshokuDoukou: return "三色同刻"
-        case .honroutou: return "混老头"
-        case .shousangen: return "小三元"
-        case .ryanpeiko: return "二杯口"
-        case .junchan: return "纯全带幺九"
-        case .honitsu: return "混一色"
-        case .chinitsu: return "清一色"
-        case .kokushi: return "国士无双"
-        case .suuankou: return "四暗刻"
-        case .daisangen: return "大三元"
-        case .shousuushii: return "小四喜"
-        case .daisuushii: return "大四喜"
-        case .tsuuiisou: return "字一色"
-        case .chinroutou: return "清老头"
-        case .ryuuiisou: return "绿一色"
-        case .chuurenPoutou: return "九莲宝灯"
-        case .suukantsu: return "四杠子"
-        case .tenhou: return "天和"
-        case .chiihou: return "地和"
+        case .pingHu: return "平胡"
+        case .duiDuiHu: return "对对胡"
+        case .qingYiSe: return "清一色"
+        case .qiDui: return "七对"
+        case .daiYaoJiu: return "带幺九"
+        case .jinGouDiao: return "金钩钓"
+        case .jiangDui: return "将对"
+        case .qingDui: return "清对"
+        case .longQiDui: return "龙七对"
+        case .qingQiDui: return "清七对"
+        case .qingDaiYao: return "清带幺"
+        case .qingJinGouDiao: return "清金钩钓"
+        case .jiangJinGou: return "将金钩"
+        case .qingLongQiDui: return "清龙七对"
+        case .tianHu: return "天胡"
+        case .diHu: return "地胡"
+        case .shiBaLuoHan: return "十八罗汉"
+        case .gen: return "根"
+        case .gangShangHua: return "杠上开花"
+        case .gangShangPao: return "杠上炮"
+        case .qiangGangHu: return "抢杠胡"
+        case .haiDiLaoYue: return "海底捞月"
+        case .haiDiPao: return "海底炮"
+        case .menQing: return "门清"
+        case .zhongZhang: return "中张"
+        case .ziMoJiaFan: return "自摸加番"
         }
     }
 
-    /// 一句话说清这个役怎么来的，给用户核对结果时看。
+    /// 一句话白话说明，给用户核对结果或看番种速查时用。
     public var explanation: String {
         switch self {
-        case .riichi: return "门前清听牌时宣布立直"
-        case .ippatsu: return "立直后一巡内和牌，中间没人吃碰杠"
-        case .menzenTsumo: return "没吃碰明杠，自己摸到和牌"
-        case .tanyao: return "整手牌全是 2–8 的数牌，没有一、九、字牌"
-        case .pinfu: return "门前清四组顺子，雀头不是役牌，两面听牌"
-        case .iipeiko: return "门前清有两组一模一样的顺子"
-        case .seatWind: return "自己门风的一组刻子或杠"
-        case .prevalentWind: return "本场风圈的一组刻子或杠"
-        case .whiteDragon: return "白板的一组刻子或杠"
-        case .greenDragon: return "发财的一组刻子或杠"
-        case .redDragon: return "红中的一组刻子或杠"
-        case .rinshan: return "开杠后摸上来的岭上牌自摸和了"
-        case .chankan: return "别人加杠时，抢和那张牌"
-        case .haitei: return "摸牌山最后一张牌自摸和了"
-        case .houtei: return "和别人打出的全桌最后一张牌"
-        case .doubleRiichi: return "第一巡还没人吃碰杠时就宣布立直"
-        case .sanshokuDoujun: return "万、饼、条各有同一数字的顺子（副露减 1 翻）"
-        case .ittsuu: return "同一花色有 123、456、789 三组顺子（副露减 1 翻）"
-        case .chanta: return "每组顺子、刻子和雀头都带一、九或字牌（副露减 1 翻）"
-        case .chiitoitsu: return "7 个不同的对子，固定 25 符"
-        case .toitoi: return "4 组全是刻子或杠，没有顺子"
-        case .sanankou: return "3 组自己摸来的暗刻或暗杠"
-        case .sankantsu: return "开了 3 个杠"
-        case .sanshokuDoukou: return "万、饼、条各有同一数字的刻子或杠"
-        case .honroutou: return "整手牌只有一、九和字牌"
-        case .shousangen: return "中、发、白里有两组刻子、一对雀头"
-        case .ryanpeiko: return "门前清有两组一杯口（四组顺子两两相同）"
-        case .junchan: return "每组顺子、刻子和雀头都带一或九，没有字牌（副露减 1 翻）"
-        case .honitsu: return "只有一种数牌加字牌（副露减 1 翻）"
-        case .chinitsu: return "全部是同一种数牌，没有字牌（副露减 1 翻）"
-        case .kokushi: return "13 种幺九字牌各一张，再加其中任意一张成对"
-        case .suuankou: return "4 组全是自己摸来的暗刻或暗杠"
-        case .daisangen: return "中、发、白三组都是刻子或杠"
-        case .shousuushii: return "东、南、西、北里有三组刻子、一对雀头"
-        case .daisuushii: return "东、南、西、北四组都是刻子或杠"
-        case .tsuuiisou: return "全部是东南西北中发白字牌"
-        case .chinroutou: return "全部是 1 和 9 的数牌，没有字牌"
-        case .ryuuiisou: return "全部由 2、3、4、6、8 条和发财组成"
-        case .chuurenPoutou: return "门前清同花色 1112345678999 加同花色任意一张"
-        case .suukantsu: return "开了 4 个杠"
-        case .tenhou: return "庄家第一巡配牌直接自摸和牌"
-        case .chiihou: return "闲家第一巡还没人吃碰杠时自摸和牌"
+        case .pingHu: return "缺一门，4 组顺子或刻子加 1 对将（0 番 1 倍）"
+        case .duiDuiHu: return "4 组全部是刻子或杠，加 1 对将（1 番 2 倍）"
+        case .qingYiSe: return "整手牌全部是同一花色（2 番 4 倍）"
+        case .qiDui: return "门前清 7 个对子，没有碰和杠（2 番 4 倍）"
+        case .daiYaoJiu: return "每一组顺子、刻子和将牌都带有 1 或 9（2 番 4 倍）"
+        case .jinGouDiao: return "4 组全部碰或杠亮在桌上，手牌只剩单吊 1 张将（2 番 4 倍）"
+        case .jiangDui: return "全部由 2、5、8 组成的对对胡（3 番 8 倍）"
+        case .qingDui: return "清一色 + 对对胡（3 番 8 倍）"
+        case .longQiDui: return "七对里含有 4 张一样的牌（3 番 8 倍，自带的 1 根不重复算）"
+        case .qingQiDui: return "清一色 + 七对（4 番 16 倍）"
+        case .qingDaiYao: return "清一色 + 带幺九（4 番 16 倍）"
+        case .qingJinGouDiao: return "清一色 + 金钩钓（4 番 16 倍）"
+        case .jiangJinGou: return "将对 + 金钩钓，全 2、5、8 单吊将（4 番 16 倍）"
+        case .qingLongQiDui: return "清一色 + 龙七对（5 番 32 倍，自带的 1 根不重复算）"
+        case .tianHu: return "庄家起手配牌 14 张直接胡牌"
+        case .diHu: return "闲家第一巡摸牌直接胡牌"
+        case .shiBaLuoHan: return "开了 4 个杠 + 金钩钓单吊将（6 番 64 倍）"
+        case .gen: return "整手牌（含碰、杠、立牌）每有 4 张相同的牌加 1 番"
+        case .gangShangHua: return "开杠后摸上来的补张牌自摸胡了（+1 番）"
+        case .gangShangPao: return "开杠后打出的牌点炮，+1 番且刚才收的杠钱呼叫转移给胡牌者"
+        case .qiangGangHu: return "别人巴杠（弯杠）时，抢胡他加杠的那张牌（+1 番）"
+        case .haiDiLaoYue: return "摸牌墙最后一张牌自摸胡了（+1 番）"
+        case .haiDiPao: return "牌墙摸完后，打出的最后一张牌点炮（+1 番）"
+        case .menQing: return "没碰、没明杠，全靠自己摸牌胡牌（+1 番，需桌规开启）"
+        case .zhongZhang: return "整手牌全是 2–8，没有 1 和 9（+1 番，需桌规开启）"
+        case .ziMoJiaFan: return "桌规设为「自摸加番」时，自摸额外 +1 番（翻倍）"
         }
     }
 }
@@ -215,7 +139,6 @@ public enum Fan: Int, CaseIterable, Codable, Sendable {
 public struct FanEntry: Hashable, Codable, Sendable {
     public let fan: Fan
     public let count: Int
-    /// 副露减翻时记录实际翻数；nil 时按 `fan.points * count`。
     public var han: Int?
 
     public init(fan: Fan, count: Int = 1, han: Int? = nil) {

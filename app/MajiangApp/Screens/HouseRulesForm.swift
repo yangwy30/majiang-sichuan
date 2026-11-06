@@ -1,381 +1,286 @@
 import SwiftUI
 import MajiangKit
 
-/// 桌规表单：一行一项，左边名字和一句白话，右边大数字。跟标准半庄一样的值是灰色细体，改过的是墨色。
+/// 开局页和牌桌「改这场规则」共用的四川麻将家规表单。
 struct HouseRulesForm: View {
     @Binding var rules: GameRules
-    /// 已经打了几局：中途改规则时，总局数不能少于这个。
-    var playedHands = 0
-    /// 截图用：一打开就点开这一项。
-    var opening: RuleItem?
+    var playedHands: Int = 0
+
+    private enum RuleItem: Identifiable {
+        case mode, fanCap, zimoRule, dianGangHua, menQingZhongZhang, basePoints, yuanPerPoint, totalHands
+        var id: Self { self }
+    }
 
     @State private var picking: RuleItem?
-    @State private var showMore = false
+
+    private struct Preset {
+        var name: String
+        var note: String
+        var rules: GameRules
+    }
+
+    private let presets: [Preset] = [
+        Preset(name: "成都血战", note: "4番封顶 · 自摸加底 · 三家胡完结局", rules: .standard),
+        Preset(name: "血流成河", note: "4番封顶 · 自摸加底 · 一局可胡多次", rules: .xueliu),
+        Preset(name: "血战加番", note: "5番封顶 · 自摸加番 · 算门清中张", rules: .highCap),
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PresetTabs(rules: $rules)
+            presetRow
 
             VStack(spacing: 0) {
-                ForEach(RuleItem.main) { item in
-                    RuleRow(item: item, rules: rules, large: true) { picking = item }
-                }
+                ruleRow("玩法模式", value: rules.mode.name) { picking = .mode }
+                Hairline()
+                ruleRow("封顶番数", value: fanCapText(rules.fanCap)) { picking = .fanCap }
+                Hairline()
+                ruleRow("自摸算法", value: rules.zimoRule.name) { picking = .zimoRule }
+                Hairline()
+                ruleRow("点杠花", value: rules.dianGangHuaRule.name) { picking = .dianGangHua }
+                Hairline()
+                ruleRow("门清 / 中张", value: menQingZhongZhangText) { picking = .menQingZhongZhang }
+                Hairline()
+                ruleRow("每底几分", value: "\(rules.basePoints) 分") { picking = .basePoints }
+                Hairline()
+                ruleRow("1 分几元", value: "\(rules.yuanPerPoint.cleanNumber) 元") { picking = .yuanPerPoint }
+                Hairline()
+                ruleRow("本场局数", value: "\(rules.totalHands) 局") { picking = .totalHands }
             }
-            .padding(.top, 4)
-
-            Text(example)
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.gray)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 14)
-
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { showMore.toggle() }
-            } label: {
-                HStack {
-                    Text(moreLabel)
-                    Spacer()
-                    Text(showMore ? "收起" : "›")
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.text(size: 14))
+            .overlay(alignment: .top) { Hairline() }
+            .overlay(alignment: .bottom) { Hairline() }
             .padding(.top, 14)
 
-            if showMore {
-                VStack(spacing: 0) {
-                    Hairline()
-                    ForEach(RuleItem.more) { item in
-                        RuleRow(item: item, rules: rules, large: false) { picking = item }
-                    }
-                }
-            }
-        }
-        .sheet(item: $picking) { item in
-            RulePicker(item: item, rules: $rules, playedHands: playedHands)
-        }
-        .onAppear {
-            showMore = RuleItem.more.contains { !$0.isStandard(rules) }
-            if let opening { picking = opening }
-        }
-    }
-
-    private var moreLabel: String {
-        let changed = RuleItem.more.filter { !$0.isStandard(rules) }.count
-        return changed > 0 ? "更多桌规 · 改过 \(changed) 项" : "更多桌规"
-    }
-
-    /// 随改随算的示例句。
-    private var example: String {
-        let han = rules.cappedFan(5)
-        let deltas = Payment.winDeltas(winner: 1, discarder: 0, dealer: 0, totalFan: han, fu: 30, rules: rules)
-        let points = deltas[1]
-        let money = ((Double(points) / 1000.0) * rules.yuanPerPoint).formatted(.number.precision(.fractionLength(0...2)))
-        return "比如闲家满贯（5 翻）：赢 \(points) 点，折合 \(money) 元。"
-    }
-}
-
-// MARK: - 预设
-
-/// 「标准半庄」「东风战」，改过就多出一个「自己定」。换预设不动千点汇率。
-private struct PresetTabs: View {
-    @Binding var rules: GameRules
-
-    private var current: Int {
-        rules.scoresLike(.standard) ? 0 : rules.scoresLike(.beginner) ? 1 : 2
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 22) {
-                tab("标准半庄", index: 0, preset: .standard)
-                tab("东风战", index: 1, preset: .beginner)
-                if current == 2 { tab("自己定", index: 2, preset: nil) }
-                Spacer()
-            }
-            Hairline()
-        }
-        .animation(.easeOut(duration: 0.15), value: current)
-    }
-
-    private func tab(_ label: String, index: Int, preset: GameRules?) -> some View {
-        let on = current == index
-        return Button {
-            guard var preset else { return }
-            preset.yuanPerPoint = rules.yuanPerPoint
-            rules = preset
-        } label: {
-            Text(label)
-                .font(.system(size: 15, weight: on ? .medium : .regular))
-                .foregroundStyle(on ? Theme.ink : Theme.gray)
-                .padding(.vertical, 10)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(on ? Theme.ink : .clear).frame(height: 2)
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
-}
-
-// MARK: - 一行
-
-private struct RuleRow: View {
-    var item: RuleItem
-    var rules: GameRules
-    var large: Bool
-    var action: () -> Void
-
-    var body: some View {
-        let value = item.value(rules)
-        let standard = item.isStandard(rules)
-        Button(action: action) {
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title).font(.system(size: 16))
-                        if large {
-                            Text(item.hint)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Theme.gray)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(value.text)
-                            .font(large ? .system(size: value.isNumber ? 34 : 20, weight: standard ? .thin : .light)
-                                    .monospacedDigit()
-                                  : .system(size: 16, weight: standard ? .regular : .medium))
-                        if !value.unit.isEmpty {
-                            Text(value.unit).font(.system(size: 14))
-                        }
-                    }
-                    .foregroundStyle(standard ? Theme.gray : Theme.ink)
-                }
-                .frame(minHeight: large ? 84 : 56)
-                Hairline()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("点一下改")
-    }
-}
-
-// MARK: - 选项
-
-private struct RulePicker: View {
-    @Environment(\.dismiss) private var dismiss
-    var item: RuleItem
-    @Binding var rules: GameRules
-    var playedHands: Int
-    @State private var customYuan = ""
-
-    var body: some View {
-        let options = item.options(playedHands: playedHands, current: rules)
-        VStack(alignment: .leading, spacing: 0) {
-            Text(item.title)
-                .font(.system(size: 17, weight: .semibold))
-                .padding(.top, 30)
-            Text(item.note)
+            Text(rules.summary)
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.gray)
+                .padding(.top, 10)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 8)
-                .padding(.bottom, 10)
+        }
+        .sheet(item: $picking) { item in
+            pickerSheet(for: item)
+        }
+        .task {
+            #if DEBUG
+            if DemoScreen.current == .rulePicker, picking == nil { picking = .fanCap }
+            #endif
+        }
+    }
 
-            ForEach(options) { option in
-                let selected = option.isSelected(rules)
+    private var presetRow: some View {
+        HStack(spacing: 8) {
+            ForEach(presets, id: \.name) { preset in
+                let selected = rules.scoresLike(preset.rules)
                 Button {
-                    option.apply(&rules)
-                    dismiss()
+                    var next = preset.rules
+                    next.yuanPerPoint = rules.yuanPerPoint
+                    rules = next
                 } label: {
-                    HStack(spacing: 10) {
-                        Text(option.label)
-                            .font(.system(size: 17, weight: selected ? .semibold : .regular))
-                        Spacer()
-                        if let tag = option.tag {
-                            Text(tag).font(.system(size: 14)).foregroundStyle(Theme.gray)
-                        }
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .opacity(selected ? 1 : 0)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(preset.name)
+                            .font(.system(size: 15, weight: .medium))
+                        Text(preset.note)
+                            .font(.system(size: 12))
+                            .foregroundStyle(selected ? .white.opacity(0.75) : Theme.gray)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
-                    .frame(height: 52)
+                    .foregroundStyle(selected ? .white : Theme.ink)
+                    .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .background(selected ? Theme.ink : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(selected ? Theme.ink : Theme.line)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!option.enabled)
-                .opacity(option.enabled ? 1 : 0.35)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                Hairline(color: Theme.lineSoft)
             }
+        }
+    }
 
-            if item == .rate {
-                HStack {
-                    Text("其他").font(.system(size: 17))
-                    Spacer()
-                    TextField("填一个数", text: $customYuan)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 100)
-                    Text("元").foregroundStyle(Theme.gray)
+    private func ruleRow(_ label: String, value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(label).font(.system(size: 16))
+                Spacer()
+                Text(value)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.gray)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.faint)
+            }
+            .frame(minHeight: 54)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func fanCapText(_ cap: Int) -> String {
+        cap == 0 ? "不封顶" : "\(cap) 番（\(1 << cap) 倍）"
+    }
+
+    private var menQingZhongZhangText: String {
+        switch (rules.allowMenQing, rules.allowZhongZhang) {
+        case (false, false): return "不计"
+        case (true, false): return "只算门清 (+1番)"
+        case (false, true): return "只算中张 (+1番)"
+        case (true, true): return "门清 + 中张 (各+1番)"
+        }
+    }
+
+    @ViewBuilder
+    private func pickerSheet(for item: RuleItem) -> some View {
+        switch item {
+        case .mode:
+            RulePickerSheet(
+                title: "玩法模式",
+                options: [
+                    (SichuanMode.xuezhan, "血战到底", "1 家胡牌后离场，剩下玩家继续打，只向在场未胡玩家收钱；最多 3 家胡牌或摸完荒庄查大叫"),
+                    (SichuanMode.xueliu, "血流成河", "胡牌后不离场，锁住手牌继续摸打，一局内可以连续胡多次，直到牌墙摸完再查大叫退税"),
+                ],
+                selection: $rules.mode
+            )
+        case .fanCap:
+            RulePickerSheet(
+                title: "封顶番数",
+                options: [
+                    (3, "3 番封顶（8 倍）", "满 3 番即封顶 8 倍，节奏明快，花猪赔 8 倍"),
+                    (4, "4 番封顶（16 倍）", "成都茶馆最主流设置，满 4 番封顶 16 倍，花猪赔 16 倍"),
+                    (5, "5 番封顶（32 倍）", "清龙七对、天胡等大牌可拿满 32 倍，花猪赔 32 倍"),
+                    (0, "不封顶", "有多少番翻多少倍（2^番数），刺激局适用"),
+                ],
+                selection: $rules.fanCap
+            )
+        case .zimoRule:
+            RulePickerSheet(
+                title: "自摸算法",
+                options: [
+                    (ZimoRule.addDi, "自摸加底", "成都主流：自摸时在总倍数上 +1 底（例如平胡 0 番自摸每家付 1+1=2 倍，2 番自摸每家付 4+1=5 倍）"),
+                    (ZimoRule.addFan, "自摸加番", "重庆/部分川南玩法：自摸直接 +1 番翻倍（例如平胡自摸算 1 番 2 倍，2 番自摸算 3 番 8 倍）"),
+                ],
+                selection: $rules.zimoRule
+            )
+        case .dianGangHua:
+            RulePickerSheet(
+                title: "点杠花（直杠补牌胡）",
+                options: [
+                    (DianGangHuaRule.asZimo, "点杠花算自摸", "别人打牌给你直杠，补张胡牌算自摸，在场未胡三家都要付钱"),
+                    (DianGangHuaRule.asDianPao, "点杠花算点炮", "谁点的杠就由谁一家包付这把杠上花"),
+                ],
+                selection: $rules.dianGangHuaRule
+            )
+        case .menQingZhongZhang:
+            let binding = Binding<Int>(
+                get: {
+                    switch (rules.allowMenQing, rules.allowZhongZhang) {
+                    case (false, false): return 0
+                    case (true, false): return 1
+                    case (false, true): return 2
+                    case (true, true): return 3
+                    }
+                },
+                set: { val in
+                    rules.allowMenQing = (val == 1 || val == 3)
+                    rules.allowZhongZhang = (val == 2 || val == 3)
                 }
-                .frame(height: 52)
-            }
-        }
-        .padding(.horizontal, 24)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .foregroundStyle(Theme.ink)
-        .presentationDetents([.height(height(options.count))])
-        .presentationDragIndicator(.visible)
-        .presentationCornerRadius(28)
-        .presentationBackground(Theme.white)
-        .onChange(of: customYuan) { _, text in
-            if let value = Double(text.replacingOccurrences(of: ",", with: ".")), value > 0 {
-                rules.yuanPerPoint = value
-            }
-        }
-    }
-
-    private func height(_ count: Int) -> CGFloat {
-        CGFloat(110 + (count + (item == .rate ? 1 : 0)) * 53)
-    }
-}
-
-// MARK: - 规则项
-
-enum RuleItem: String, Identifiable, CaseIterable {
-    case rate, rounds, minimum, flowers, base
-    case cap, penalty, swap
-
-    var id: String { rawValue }
-
-    static let main: [RuleItem] = [.rate, .rounds, .minimum, .flowers, .base]
-    static let more: [RuleItem] = [.cap, .penalty, .swap]
-
-    var title: String {
-        switch self {
-        case .rate: return "1000 点算"
-        case .rounds: return "局制"
-        case .minimum: return "起和"
-        case .flowers: return "宝牌"
-        case .base: return "切上满贯"
-        case .cap: return "封顶"
-        case .penalty: return "错和罚符"
-        case .swap: return "每圈换座"
-        }
-    }
-
-    var hint: String {
-        switch self {
-        case .rate: return "结算时每 1000 点折合多少元"
-        case .rounds: return "半庄 8 局，东风战 4 局"
-        case .minimum: return "至少几翻役才能和（宝牌不算）"
-        case .flowers: return "表宝、赤宝、里宝每张 1 翻"
-        case .base: return "30 符 4 翻、60 符 3 翻按满贯算"
-        case .cap, .penalty, .swap: return ""
-        }
-    }
-
-    var note: String {
-        switch self {
-        case .rate: return "每桌自己定，换预设不会动这一项。比如千点 1 元时，满贯 8000 点就是 8 元。"
-        case .rounds: return "标准半庄打东场 4 局 + 南场 4 局共 8 局；时间紧可以打东风战 4 局。"
-        case .minimum: return "立直麻将标准为 1 翻起和（宝牌不算役）。少数桌规要求 2 翻起和。"
-        case .flowers: return "计入宝牌时，表宝牌、赤宝牌、里宝牌每张加 1 翻，但不计入 1 翻起和条件。"
-        case .base: return "标准规则下 30 符 4 翻和 60 符 3 翻是 7700 / 11600 点；开启切上满贯后直接按满贯 8000 / 12000 点算。"
-        case .cap: return "默认 13 翻及以上算累计役满。怕一把输太多可以设倍满（8 翻）或满贯（5 翻）封顶。"
-        case .penalty: return "推倒了却无役或凑不成和牌，赔另外三家各这么多点，这一局接着打。"
-        case .swap: return "朋友局一般不换座。"
-        }
-    }
-
-    func isStandard(_ rules: GameRules) -> Bool {
-        let standard = GameRules.standard
-        switch self {
-        case .rate: return rules.yuanPerPoint == standard.yuanPerPoint
-        case .rounds: return rules.totalHands == standard.totalHands
-        case .minimum: return rules.minimumFan == standard.minimumFan
-        case .flowers: return rules.includeFlowers == standard.includeFlowers
-        case .base: return rules.kiriageMangan == standard.kiriageMangan
-        case .cap: return rules.fanCap == standard.fanCap
-        case .penalty: return rules.falseWinPenalty == standard.falseWinPenalty
-        case .swap: return rules.swapSeatsEachRound == standard.swapSeatsEachRound
-        }
-    }
-
-    func value(_ rules: GameRules) -> (text: String, unit: String, isNumber: Bool) {
-        switch self {
-        case .rate: return (rules.yuanPerPoint.yuanText, "元", true)
-        case .rounds:
-            if rules.totalHands == 8 { return ("半庄 8 局", "", false) }
-            if rules.totalHands == 4 { return ("东风 4 局", "", false) }
-            return ("\(rules.totalHands)", "局", true)
-        case .minimum: return ("\(rules.minimumFan)", "翻", true)
-        case .flowers: return (rules.includeFlowers ? "计宝牌" : "不计", "", false)
-        case .base: return (rules.kiriageMangan ? "开启" : "不切上", "", false)
-        case .cap: return rules.fanCap > 0 ? ("\(rules.fanCap) 翻", "", false) : ("不封顶", "", false)
-        case .penalty: return ("\(rules.falseWinPenalty) 点", "", false)
-        case .swap: return (rules.swapSeatsEachRound ? "换" : "不换", "", false)
-        }
-    }
-
-    func options(playedHands: Int, current: GameRules) -> [RuleOption] {
-        switch self {
-        case .rate:
-            var values = [0.5, 1, 2, 5, 10]
-            if !values.contains(current.yuanPerPoint) { values.append(current.yuanPerPoint); values.sort() }
-            return values.map { RuleOption.choice(\.yuanPerPoint, $0, "\($0.yuanText) 元", marksStandard: false) }
-        case .rounds:
-            return [(8, "半庄战（东南 8 局）"), (4, "东风战（4 局）"), (16, "一庄战（16 局）")].map { hands, label in
-                var option = RuleOption.choice(\.totalHands, hands, label)
-                option.enabled = hands >= playedHands
-                return option
-            }
-        case .minimum:
-            return [1, 2].map { RuleOption.choice(\.minimumFan, $0, "\($0) 翻起和") }
-        case .flowers:
-            return [true, false].map { RuleOption.choice(\.includeFlowers, $0, $0 ? "计宝牌" : "不计宝牌") }
-        case .base:
-            return [false, true].map {
-                RuleOption.choice(\.kiriageMangan, $0, $0 ? "切上满贯（按 8000 / 12000 算）" : "按实算（7700 / 11600 点）")
-            }
-        case .cap:
-            return [(0, "不封顶（13 翻累计役满）"), (13, "13 翻（役满封顶）"), (8, "8 翻（倍满封顶）"), (5, "5 翻（满贯封顶）")].map {
-                RuleOption.choice(\.fanCap, $0.0, $0.1)
-            }
-        case .penalty:
-            var values = [3000, 2000, 4000]
-            if !values.contains(current.falseWinPenalty) { values.append(current.falseWinPenalty) }
-            return values.map { RuleOption.choice(\.falseWinPenalty, $0, "每家 \($0) 点") }
-        case .swap:
-            return [false, true].map { RuleOption.choice(\.swapSeatsEachRound, $0, $0 ? "换座" : "不换") }
+            )
+            RulePickerSheet(
+                title: "门清 / 中张（断幺九）",
+                options: [
+                    (0, "不计门清中张", "传统老成都血战规则，门前清与断幺九不额外加番"),
+                    (3, "门清 + 中张（各 +1 番）", "门前清（无碰无明杠）+1 番，全由 2~8 组成（无一、九）+1 番"),
+                    (1, "只算门清（+1 番）", "门前清 +1 番，中张不加番"),
+                    (2, "只算中张（+1 番）", "断幺九 +1 番，门前清不加番"),
+                ],
+                selection: binding
+            )
+        case .basePoints:
+            RulePickerSheet(
+                title: "每底几分",
+                options: [
+                    (1, "1 分底", "平胡 1 分，对对胡 2 分，清一色 4 分，直杠 2 分，巴杠 1 分，暗杠 2 分"),
+                    (2, "2 分底", "所有番种与刮风下雨按 2 分底倍增"),
+                    (5, "5 分底", "所有番种与刮风下雨按 5 分底倍增"),
+                    (10, "10 分底", "所有番种与刮风下雨按 10 分底倍增"),
+                ],
+                selection: $rules.basePoints
+            )
+        case .yuanPerPoint:
+            RulePickerSheet(
+                title: "1 分几元",
+                options: [
+                    (0.5, "1 分 0.5 元", "5 毛底"),
+                    (1.0, "1 分 1 元", "1 块底，分就是元"),
+                    (2.0, "1 分 2 元", "2 块底"),
+                    (5.0, "1 分 5 元", "5 块底"),
+                    (10.0, "1 分 10 元", "10 块底"),
+                ],
+                selection: $rules.yuanPerPoint
+            )
+        case .totalHands:
+            RulePickerSheet(
+                title: "本场局数",
+                options: [
+                    (4, "4 局（一圈）", "快速打 4 局"),
+                    (8, "8 局（两圈）", "茶馆常规 8 局，随时也可提前结算"),
+                    (12, "12 局（三圈）", "下午茶长局"),
+                    (16, "16 局（四圈）", "完整四圈"),
+                ],
+                selection: $rules.totalHands
+            )
         }
     }
 }
 
-struct RuleOption: Identifiable {
-    var label: String
-    var tag: String?
-    var isSelected: (GameRules) -> Bool
-    var apply: (inout GameRules) -> Void
-    var enabled = true
+private struct RulePickerSheet<Value: Hashable>: View {
+    @Environment(\.dismiss) private var dismiss
+    var title: String
+    var options: [(Value, String, String)]
+    @Binding var selection: Value
 
-    var id: String { label }
-
-    static func choice<T: Equatable>(_ keyPath: WritableKeyPath<GameRules, T>, _ value: T, _ label: String,
-                                     tag: String? = nil, marksStandard: Bool = true) -> RuleOption {
-        let isStandard = marksStandard && GameRules.standard[keyPath: keyPath] == value
-        return RuleOption(label: label, tag: isStandard ? "标准" : tag,
-                          isSelected: { $0[keyPath: keyPath] == value },
-                          apply: { $0[keyPath: keyPath] = value })
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(options.enumerated()), id: \.element.0) { index, option in
+                        if index > 0 { Hairline() }
+                        Button {
+                            selection = option.0
+                            dismiss()
+                        } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(option.1).font(.system(size: 16, weight: .medium))
+                                    Text(option.2)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Theme.gray)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer()
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .opacity(selection == option.0 ? 1 : 0)
+                            }
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .overlay(alignment: .top) { Hairline() }
+                .overlay(alignment: .bottom) { Hairline() }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+            }
+            .page()
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                NavClose { dismiss() }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
-}
-
-extension Double {
-    var yuanText: String { formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) }
 }

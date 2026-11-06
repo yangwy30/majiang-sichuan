@@ -2,12 +2,11 @@ import Foundation
 
 /// 双读：端侧模型和 Gemini 同时跑。端侧几百毫秒就先给出结果（`preview`），Gemini 复核完再合并：
 /// 两边读得一样的牌直接用；同一位置读得不一样的给两个候选让用户选；只有一边读到的标出来问一句。
-/// 研究里的模拟（33 张）：两边完全一致的照片全部是对的，不一致的平均要点 2 下。
 public struct DualReadRecognizer: ProgressiveTileRecognizer {
     public let name = "双读"
     /// 快的一路（端侧），先给结果。
     public var primary: TileRecognizer
-    /// 慢但看得懂吃碰杠的一路（Gemini），合并时牌序和副露以它为准。
+    /// 慢但看得懂碰杠的一路（Gemini），合并时牌序和副露以它为准。
     public var secondary: TileRecognizer
 
     public init(primary: TileRecognizer, secondary: TileRecognizer) {
@@ -29,7 +28,6 @@ public struct DualReadRecognizer: ProgressiveTileRecognizer {
         case (.success(let a), .success(let b)):
             return Self.merge(b, with: a)
         case (.success(var a), .failure(let error)):
-            // 说明会显示给用户：不提 Gemini、端侧，只说第一遍、第二遍
             a.notes.append("第二遍没复核上（\(Self.describe(error))），只有第一遍的读法，对照照片看一眼")
             return a
         case (.failure, .success(let b)):
@@ -45,12 +43,6 @@ public struct DualReadRecognizer: ProgressiveTileRecognizer {
 
     // MARK: 合并
 
-    /// 合并两路结果。`base`（Gemini）的牌序和副露为准，`other`（端侧）的牌按顺序对齐上去：
-    /// - 对上了、读法一样的不用看；
-    /// - 对上了但读法不一样的，两种读法都是候选；
-    /// - 只有 base 读到的标成待确认（可能是 base 多读了）；
-    /// - 只有 other 读到、又不是副露里的牌，插在对应位置、标成待确认（可能是 base 漏读了）；
-    ///   和明着的吃碰杠里的牌只差一点的，记一条说明（副露没法逐张给候选）。
     public static func merge(_ base: Recognition, with other: Recognition) -> Recognition {
         var merged = base
         merged.source = "双读"
@@ -61,13 +53,11 @@ public struct DualReadRecognizer: ProgressiveTileRecognizer {
         var meldPool = base.melds.flatMap(\.tiles)
         let steps = align(b, a, cheapToSkip: Set(meldPool))
 
-        // 先把对得上副露的牌消掉，剩下的才是 other 多读到的
-        var extras: [Int: Tile] = [:]  // steps 里的下标 → 牌
+        var extras: [Int: Tile] = [:]
         for (k, step) in steps.enumerated() {
             guard case .otherOnly(let j) = step else { continue }
             if let index = meldPool.firstIndex(of: a[j]) { meldPool.remove(at: index) } else { extras[k] = a[j] }
         }
-        // 明着的副露里没对上的牌，和多读到的牌挨得近，多半是副露里那张两边读得不一样
         var unmatchedMelds = base.melds.filter { !($0.kind == .kong && $0.isConcealed) }
             .filter { meld in meld.tiles.contains { meldPool.contains($0) } }
         for k in extras.keys.sorted() {
@@ -96,11 +86,7 @@ public struct DualReadRecognizer: ProgressiveTileRecognizer {
             }
         }
         merged.concealed = concealed
-
-        if base.flowerCount != other.flowerCount {
-            merged.flowerCount = max(base.flowerCount, other.flowerCount)
-            merged.notes.append("宝牌两遍数得不一样（一遍 \(base.flowerCount) 张，一遍 \(other.flowerCount) 张），在下面改")
-        }
+        merged.flowerCount = 0
         return merged
     }
 
@@ -110,8 +96,6 @@ public struct DualReadRecognizer: ProgressiveTileRecognizer {
         case otherOnly(Int)
     }
 
-    /// 两串牌按顺序对齐（编辑距离）。读法不同的代价：同花色 0.8 起、点数差越多越贵，不同花色 1.5；
-    /// 跳过一张 1（`cheapToSkip` 里的牌只要 0.35，它们多半是 other 读进来的吃碰杠）。
     static func align(_ b: [Tile], _ a: [Tile], cheapToSkip: Set<Tile>) -> [Step] {
         func substitution(_ x: Tile, _ y: Tile) -> Double {
             if x == y { return 0 }
@@ -148,7 +132,7 @@ public struct DualReadRecognizer: ProgressiveTileRecognizer {
     }
 }
 
-/// 规则校验：识别结果凑不成和牌时，带着原因让同一路识别再看一次（研究里这一步把判胡从 31/33 提到 33/33）。
+/// 规则校验：识别结果凑不成胡牌（且不是 13 张流局查叫手牌）时，带着原因让同一路识别再看一次。
 public struct RuleCheckedRecognizer: TileRecognizer {
     public var base: TileRecognizer
     public var name: String { base.name }
@@ -173,28 +157,34 @@ public struct RuleCheckedRecognizer: TileRecognizer {
         if !hand.overusedTiles.isEmpty {
             return "你读出的牌里 \(hand.overusedTiles.map(\.notation).joined(separator: " ")) 超过 4 张，这不可能。"
         }
+        // 如果是 13 张（查大叫手牌），只要没有超过 4 张即可，不要求凑成 14 张胡牌
+        if hand.hasValidTenpaiTileCount {
+            return nil
+        }
         if !FanCalculator.isWinningShape(hand) {
             let count = hand.allTiles.count
-            return "按立直麻将规则，你读出的这 \(count) 张牌拼不成和牌。请对照照片逐张再核对一遍（常见的错是条子、饼子的点数差一，或漏读了被遮挡、切边的牌）。如果照片里的牌确实就是这样，就照实输出，不要为了凑成和牌而改。"
+            return "按四川麻将规则（需缺一门），你读出的这 \(count) 张牌拼不成胡牌。请对照照片逐张再核对一遍（常见的错是条子、筒子的点数差一，或漏读了被遮挡、切边的牌）。如果照片里的牌确实就是这样（例如流局查叫的 13 张牌），就照实输出，不要为了凑成胡牌而改。"
         }
         return nil
     }
 }
 
-/// 在两路读法不一致的牌里，找出能和的组合，标成推荐（确认页上的「选这个能和」）。
-/// 只有一边读到的牌，「没有这张」也算一种读法。
-/// 只有恰好一种组合能起和时才推荐；几种都能和时不替用户挑（挑番大的会偏向多算番），让用户对照照片选。
+public typealias RecognitionResolution = RecognitionResolver.Resolution
+
+/// 在两路读法不一致的牌里，找出能胡的组合，标成推荐（确认页上的「选这个能胡」）。
 public enum RecognitionResolver {
     public struct Resolution: Hashable, Sendable {
-        /// 每张需要确认的牌推荐的读法（下标同 `Recognition.concealed`）。
         public let recommended: [Int: Tile]
-        /// 推荐删掉的牌（只有一边读到，删了才能和）。
         public let removals: Set<Int>
         public let result: ScoringResult?
+
+        public var hasRecommendations: Bool {
+            !recommended.isEmpty || !removals.isEmpty
+        }
     }
 
     public static func resolve(_ recognition: Recognition, context: WinContext,
-                               minimumFan: Int = 1, maxFlagged: Int = 6) -> Resolution {
+                               minimumFan: Int = 0, maxFlagged: Int = 6) -> Resolution {
         let flagged = recognition.concealed.indices.filter { recognition.concealed[$0].needsReview }
         guard !flagged.isEmpty, flagged.count <= maxFlagged else {
             return Resolution(recommended: [:], removals: [],
@@ -205,7 +195,7 @@ public enum RecognitionResolver {
         func search(_ k: Int, _ choice: [Int: Tile?]) {
             if k == flagged.count {
                 let tiles = recognition.concealed.indices.compactMap { i -> Tile? in
-                    if let chosen = choice[i] { return chosen }  // 选了「没有这张」时是 nil
+                    if let chosen = choice[i] { return chosen }
                     return recognition.concealed[i].tile
                 }
                 let hand = Hand(melds: recognition.melds, concealed: tiles, winningTile: tiles.last)

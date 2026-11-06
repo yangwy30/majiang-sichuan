@@ -122,14 +122,13 @@ struct NewGameView: View {
             NavBack("首页") { model.path.removeLast() }
         }
         .sheet(isPresented: $editingRules) {
-            RulesSheet(rules: $rules, opening: model.demoScreen == .rulePicker ? .cap : nil)
+            RulesSheet(rules: $rules)
         }
         .onAppear {
-            // 第一行是自己：用上一场的名字先填上，常一起打的人就会往下填
             if names[0].isEmpty, let me = model.archive.lastMeName { names[0] = me }
             rules = model.archive.lastRules
             if model.demoScreen == .houseRules || model.demoScreen == .rulePicker {
-                rules.fanCap = 64
+                rules.fanCap = 5
                 rules.yuanPerPoint = 2
                 editingRules = true
             }
@@ -180,13 +179,11 @@ struct NewGameView: View {
 private struct RulesSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var rules: GameRules
-    /// 截图用：一打开就点开这一项。
-    var opening: RuleItem?
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                HouseRulesForm(rules: $rules, opening: opening)
+                HouseRulesForm(rules: $rules)
                     .padding(.horizontal, 24)
                     .padding(.top, 4)
                     .padding(.bottom, 24)
@@ -194,7 +191,6 @@ private struct RulesSheet: View {
             .page()
             .navigationTitle("规则")
             .navigationBarTitleDisplayMode(.inline)
-            // 改了就生效，没有「取消」；底部的按钮收起来
             .bottomBar {
                 Button("好") { dismiss() }
                     .buttonStyle(.primary)

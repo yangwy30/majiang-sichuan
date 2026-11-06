@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import MajiangKit
 
-/// 发到微信群的账本图：打完了就是结算（名次 + 最省事的转账），没打完就是现在的分数 + 最近几局。
+/// 发到微信群的账本图：打完了就是结算（名次 + 最省事的转账），没打完就是现在的分数 + 最近几笔流水。
 /// 宽 360 点、按 3 倍渲染，在微信里点开是 1080 宽的清楚图片。
 struct ShareCard: View {
     var game: Game
@@ -26,7 +26,7 @@ struct ShareCard: View {
             } else {
                 recent.padding(.top, 26)
             }
-            Text("拍照算番 · 拍一下，番和钱都算好")
+            Text("四川麻将拍照算番 · 血战血流 · 查大叫与自动退税")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.faint)
                 .padding(.top, 26)
@@ -42,7 +42,7 @@ struct ShareCard: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Text("和")
+                Text("胡")
                     .font(Theme.serif(14))
                     .foregroundStyle(.white)
                     .frame(width: 24, height: 24)
@@ -60,8 +60,8 @@ struct ShareCard: View {
                 Text(game.isFinished ? "打完了" : "打到\(game.handLabel)")
                     .font(.system(size: 26, weight: .semibold))
                     .tracking(-0.3)
-                Text(game.isFinished ? "一共 \(game.currentHandIndex) 局"
-                     : "打了 \(game.currentHandIndex) 局 · 还剩 \(game.remainingHands) 局")
+                Text(game.isFinished ? "一共 \(game.currentHandIndex) 局 · \(game.rules.mode.name)"
+                     : "已打 \(game.currentHandIndex) 局 · 还剩 \(game.remainingHands) 局 · \(game.rules.mode.name)")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.gray)
             }
@@ -123,7 +123,7 @@ struct ShareCard: View {
 
     private var recent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("最近几局").padding(.bottom, 4)
+            SectionLabel("最近流水").padding(.bottom, 4)
             if game.records.isEmpty {
                 Text("还没有记录。")
                     .font(.system(size: 14))
@@ -156,13 +156,13 @@ struct ShareCard: View {
 }
 
 extension Game {
-    /// 「最大的一手：杨，清一色 8 翻（倍满）」。
+    /// 「最大的一把：杨，清一色 · 4 番（16 倍）」。
     var biggestWinLine: String? {
         guard let biggest = biggestWin else { return nil }
         let paid = rules.paidFan(biggest.win)
-        let limit = Payment.limitName(han: paid, fu: biggest.win.fu, kiriageMangan: rules.kiriageMangan)
-        let suffix = limit.map { "\($0) \(paid) 翻" } ?? "\(paid) 翻 \(biggest.win.fu) 符"
-        return "最大的一手：\(players[biggest.win.winner].name)，"
+        let mult = rules.paidMultiplier(biggest.win)
+        let suffix = "\(paid) 番（\(mult) 倍）"
+        return "最大的一把：\(players[biggest.win.winner].name)，"
             + (biggest.win.fans.first.map { "\($0.fan.name) · " } ?? "") + suffix
     }
 
@@ -170,10 +170,10 @@ extension Game {
     var shareText: String {
         let scores = self.scores
         var lines = [isFinished
-                     ? "立直日麻 \(startedAt.dayLabel) · 打完了，一共 \(currentHandIndex) 局"
-                     : "立直日麻 \(startedAt.dayLabel) · 打到\(handLabel)（打了 \(currentHandIndex) 局）"]
+                     ? "四川麻将（\(rules.mode.shortName)）\(startedAt.dayLabel) · 打完了，一共 \(currentHandIndex) 局"
+                     : "四川麻将（\(rules.mode.shortName)）\(startedAt.dayLabel) · 打到\(handLabel)（已打 \(currentHandIndex) 局）"]
         for player in Settlement.ranking(scores: scores) {
-            lines.append("\(players[player].name) \(Theme.signed(scores[player])) 点（\(moneyText(scores[player]))）")
+            lines.append("\(players[player].name) \(Theme.signed(scores[player])) 分（\(moneyText(scores[player]))）")
         }
         if isFinished {
             let transfers = Settlement.minimalTransfers(scores: scores)
@@ -185,7 +185,7 @@ extension Game {
             }
             if let line = biggestWinLine { lines.append(line) }
         } else if let last = records.last {
-            lines.append("上一局：\(last.title(in: self))")
+            lines.append("最新一笔：\(last.title(in: self))")
         }
         return lines.joined(separator: "\n")
     }

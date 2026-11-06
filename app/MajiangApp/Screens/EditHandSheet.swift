@@ -1,25 +1,26 @@
 import SwiftUI
 import MajiangKit
 
-/// 改账本里的某一局：和了 / 没人和 / 和错了之间换，改谁和、谁点炮、几番，或者整局删掉。
-/// 改完以后这一局之后的局数、风位和分数由 `Game.replace` 重算，这里只预览。
+/// 改账本里的某一条记录：胡牌 / 刮风下雨 / 荒庄查叫 / 流局 / 诈胡之间查看或修改，或者直接删掉。
+/// 改完以后这一笔之后的局内状态、退税、呼叫转移和分数由 `Game.replace` 重算。
 struct EditHandSheet: View {
     @Environment(\.dismiss) private var dismiss
     var game: Game
     var record: HandRecord
-    /// 账本里这一行的编号。
     var number: Int
     var onSave: (HandOutcome) -> Void
     var onDelete: () -> Void
 
-    private enum Kind: Hashable { case win, drawn, falseWin, manual }
+    private enum Kind: Hashable { case win, kong, drawSettlement, drawn, falseWin, manual }
 
     @State private var kind: Kind
     @State private var winner: Int
     @State private var selfDrawn: Bool
     @State private var discarder: Int?
-    /// 手动改的番数（含花）；nil 表示按牌算或者沿用原来的番数。
     @State private var fanEdit: Int?
+    @State private var kongPlayer: Int
+    @State private var kongKind: KongRecord.Kind
+    @State private var kongDiscarder: Int?
     @State private var offender: Int
     @State private var confirmDelete = false
 
@@ -36,21 +37,54 @@ struct EditHandSheet: View {
             _winner = State(initialValue: win.winner)
             _selfDrawn = State(initialValue: win.isSelfDrawn)
             _discarder = State(initialValue: win.discarder)
+            _kongPlayer = State(initialValue: win.winner)
+            _kongKind = State(initialValue: .anGang)
+            _kongDiscarder = State(initialValue: nil)
             _offender = State(initialValue: win.winner)
+        case .kong(let kong):
+            _kind = State(initialValue: .kong)
+            _winner = State(initialValue: kong.player)
+            _selfDrawn = State(initialValue: true)
+            _discarder = State(initialValue: nil)
+            _kongPlayer = State(initialValue: kong.player)
+            _kongKind = State(initialValue: kong.kind)
+            _kongDiscarder = State(initialValue: kong.discarder)
+            _offender = State(initialValue: kong.player)
+        case .drawSettlement:
+            _kind = State(initialValue: .drawSettlement)
+            _winner = State(initialValue: 0)
+            _selfDrawn = State(initialValue: true)
+            _discarder = State(initialValue: nil)
+            _kongPlayer = State(initialValue: 0)
+            _kongKind = State(initialValue: .anGang)
+            _kongDiscarder = State(initialValue: nil)
+            _offender = State(initialValue: 0)
         case .falseWin(let offender):
             _kind = State(initialValue: .falseWin)
             _winner = State(initialValue: offender)
             _selfDrawn = State(initialValue: true)
+            _discarder = State(initialValue: nil)
+            _kongPlayer = State(initialValue: offender)
+            _kongKind = State(initialValue: .anGang)
+            _kongDiscarder = State(initialValue: nil)
             _offender = State(initialValue: offender)
         case .drawn:
             _kind = State(initialValue: .drawn)
             _winner = State(initialValue: 0)
             _selfDrawn = State(initialValue: true)
+            _discarder = State(initialValue: nil)
+            _kongPlayer = State(initialValue: 0)
+            _kongKind = State(initialValue: .anGang)
+            _kongDiscarder = State(initialValue: nil)
             _offender = State(initialValue: 0)
         case .manual:
             _kind = State(initialValue: .manual)
             _winner = State(initialValue: 0)
             _selfDrawn = State(initialValue: true)
+            _discarder = State(initialValue: nil)
+            _kongPlayer = State(initialValue: 0)
+            _kongKind = State(initialValue: .anGang)
+            _kongDiscarder = State(initialValue: nil)
             _offender = State(initialValue: 0)
         }
     }
@@ -61,19 +95,30 @@ struct EditHandSheet: View {
     }
 
     private var kinds: [(Kind, String)] {
-        var options: [(Kind, String)] = [(.win, "和了"), (.drawn, "没人和"), (.falseWin, "和错了")]
-        if case .manual = record.outcome { options.append((.manual, "直接改分")) }
-        return options
+        switch record.outcome {
+        case .kong:
+            return [(.kong, "刮风下雨"), (.win, "胡牌"), (.falseWin, "诈胡")]
+        case .drawSettlement:
+            return [(.drawSettlement, "荒庄查叫"), (.drawn, "普通流局")]
+        case .manual:
+            return [(.manual, "直接改分")]
+        default:
+            return [(.win, "胡牌"), (.kong, "刮风下雨"), (.drawn, "流局"), (.falseWin, "诈胡")]
+        }
     }
 
-    /// 改完以后的这一局；还缺信息（点炮没选人）时为 nil。
     private var outcome: HandOutcome? {
         switch kind {
         case .win:
             if !selfDrawn && discarder == nil { return nil }
-            // 原来不是和牌的话没有牌，只能直接给番数，先按起和番算
-            var win = originalWin ?? WinRecord(winner: winner, discarder: nil, hand: nil, context: WinContext(),
-                                               fans: [], flowerFan: 0, fanOverride: game.rules.minimumFan)
+            var win = originalWin ?? WinRecord(
+                winner: winner,
+                discarder: nil,
+                hand: nil,
+                context: WinContext(),
+                fans: [],
+                fanOverride: game.rules.minimumFan
+            )
             win.winner = winner
             win.discarder = selfDrawn ? nil : discarder
             if let fanEdit {
@@ -81,6 +126,12 @@ struct EditHandSheet: View {
                 win.fans = []
             }
             return .win(win)
+        case .kong:
+            if kongKind == .zhiGang && kongDiscarder == nil { return nil }
+            let tile = record.kong?.tile
+            return .kong(KongRecord(player: kongPlayer, kind: kongKind, discarder: kongDiscarder, tile: tile))
+        case .drawSettlement:
+            return record.outcome
         case .drawn:
             return .drawn
         case .falseWin:
@@ -106,20 +157,18 @@ struct EditHandSheet: View {
         return edited.records.first { $0.id == record.id }
     }
 
-    /// 番数格子里显示的数：手动改过的、按改完的样子算出来的，都没有就用原来的。
     private var shownFan: Int {
         if let fanEdit { return fanEdit }
         if case .win(let win)? = previewRecord?.outcome { return win.totalFan }
-        // 按牌重算以后不够起和：错误里带着不含花的番数
-        if case .failure(.belowMinimumFan(let fan))? = preview { return fan + flowerFan }
+        if case .failure(.belowMinimumFan(let fan))? = preview { return fan }
         return originalWin?.totalFan ?? game.rules.minimumFan
     }
 
-    private var flowerFan: Int { originalWin?.flowerFan ?? 0 }
-    private var minimumFan: Int { game.rules.minimumFan + flowerFan }
+    private var minimumFan: Int { game.rules.minimumFan }
 
     private var blockedReason: String? {
         if kind == .win && !selfDrawn && discarder == nil { return "选一下谁点的炮" }
+        if kind == .kong && kongKind == .zhiGang && kongDiscarder == nil { return "选一下谁点的杠" }
         if case .failure(let error) = preview { return error.message }
         return nil
     }
@@ -128,17 +177,21 @@ struct EditHandSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    SegmentedSwitch(options: kinds, selection: $kind)
+                    if kinds.count > 1 {
+                        SegmentedSwitch(options: kinds, selection: $kind)
+                    }
 
                     switch kind {
                     case .win: winSection
-                    case .drawn: note("这局没人和，不计分。")
+                    case .kong: kongSection
+                    case .drawSettlement: note("荒庄查花猪、查大叫与自动退税由本局刮风下雨流水自动联动计算。若需重录，可删掉本条后在牌桌点「流局查叫」。")
+                    case .drawn: note("本局荒庄流局，不计分并进入下一局。")
                     case .falseWin: falseWinSection
-                    case .manual: note("直接改的分不能在这里改。要重填就删掉这一局，再从右上角「直接改分」记一条。")
+                    case .manual: note("直接改的分不能在这里改。要重填就删掉这一条，再从右上角「直接改分」记一条。")
                     }
 
                     if let previewRecord, previewRecord.deltas != [0, 0, 0, 0] {
-                        SectionLabel("这一局")
+                        SectionLabel("这一笔得失分")
                             .padding(.top, 28)
                             .padding(.bottom, 10)
                         deltaGrid(previewRecord.deltas)
@@ -155,44 +208,47 @@ struct EditHandSheet: View {
                 }
                 .buttonStyle(.primary)
                 .disabled(blockedReason != nil)
-                Button("删掉这一局") { confirmDelete = true }
+                Button("删掉这一笔记录") { confirmDelete = true }
                     .buttonStyle(.text)
             }
             .page()
-            .navigationTitle("改第 \(number) 局")
+            .navigationTitle("改第 \(number) 笔")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 NavClose { dismiss() }
             }
-            .confirmationDialog("删掉第 \(number) 局？", isPresented: $confirmDelete, titleVisibility: .visible) {
+            .confirmationDialog("删掉第 \(number) 笔记录？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删掉", role: .destructive) {
                     onDelete()
                     dismiss()
                 }
             } message: {
-                Text("这一局的分数全部退回，后面的局往前挪。")
+                Text("这一笔的分数全部退回，后面的局内状态与退税会自动重算。")
             }
             .onChange(of: winner) { _, new in
                 if discarder == new { discarder = nil }
             }
+            .onChange(of: kongPlayer) { _, new in
+                if kongDiscarder == new { kongDiscarder = nil }
+            }
         }
     }
 
-    // MARK: 和了
+    // MARK: 胡牌
 
     @ViewBuilder
     private var winSection: some View {
-        SectionLabel("谁和了")
+        SectionLabel("谁胡了")
             .padding(.top, 28)
             .padding(.bottom, 10)
         chips(selected: winner) { winner = $0 }
 
-        SectionLabel("怎么和的")
+        SectionLabel("怎么胡的")
             .padding(.top, 28)
             .padding(.bottom, 10)
         SegmentedSwitch(options: [(true, "自摸"), (false, "点炮")], selection: $selfDrawn)
         if !selfDrawn {
-            Text("是谁打的？")
+            Text("是谁点的炮？")
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.gray)
                 .padding(.top, 10)
@@ -216,40 +272,74 @@ struct EditHandSheet: View {
 
     private var fanRow: some View {
         HStack {
-            Text("翻数").font(.system(size: 16))
+            Text("番数（\(1 << min(shownFan, 10)) 倍）").font(.system(size: 16))
             Spacer()
             HStack(spacing: 14) {
-                stepButton("minus", label: "少一翻") { fanEdit = max(minimumFan, shownFan - 1) }
+                stepButton("minus", label: "少一番") { fanEdit = max(minimumFan, shownFan - 1) }
                     .disabled(shownFan <= minimumFan)
                 Text("\(shownFan)")
                     .font(.system(size: 17).monospacedDigit())
                     .frame(minWidth: 28)
-                stepButton("plus", label: "多一翻") { fanEdit = shownFan + 1 }
+                stepButton("plus", label: "多一番") { fanEdit = shownFan + 1 }
             }
         }
         .frame(minHeight: 60)
     }
 
     private var fanNote: String {
-        let flowers = flowerFan > 0 ? "含宝牌 \(flowerFan) 翻。" : ""
         if fanEdit != nil || originalWin?.fanOverride != nil || originalWin == nil {
-            return flowers + "翻数是手填的，账本里不再列役种。"
+            return "番数是手填的，账本里不再列番种明细。"
         }
         if originalWin?.hand != nil {
-            return flowers + "按拍下的牌自动算，换了谁和、自摸还是点炮会重算。要直接改就点加减。"
+            return "按拍下的牌自动算，换了谁胡、自摸还是点炮会重算。要直接改番数就点加减。"
         }
-        return flowers + "要改翻数就点加减。"
+        return "要改番数就点加减。"
     }
 
-    // MARK: 和错了
+    // MARK: 刮风下雨
+
+    @ViewBuilder
+    private var kongSection: some View {
+        SectionLabel("谁开的杠")
+            .padding(.top, 28)
+            .padding(.bottom, 10)
+        chips(selected: kongPlayer) { kongPlayer = $0 }
+
+        SectionLabel("刮风还是下雨")
+            .padding(.top, 28)
+            .padding(.bottom, 10)
+        SegmentedSwitch(
+            options: [
+                (KongRecord.Kind.zhiGang, "直杠(2倍)"),
+                (KongRecord.Kind.baGang, "巴杠(1倍)"),
+                (KongRecord.Kind.anGang, "暗杠(2倍)"),
+            ],
+            selection: $kongKind
+        )
+
+        if kongKind == .zhiGang {
+            Text("是谁点的杠？")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.gray)
+                .padding(.top, 10)
+            HStack(spacing: 8) {
+                ForEach((0..<4).filter { $0 != kongPlayer }, id: \.self) { i in
+                    NameChip(name: game.players[i].name, selected: kongDiscarder == i) { kongDiscarder = i }
+                }
+            }
+            .padding(.top, 10)
+        }
+    }
+
+    // MARK: 诈胡
 
     @ViewBuilder
     private var falseWinSection: some View {
-        SectionLabel("谁和错了")
+        SectionLabel("谁诈胡了")
             .padding(.top, 28)
             .padding(.bottom, 10)
         chips(selected: offender) { offender = $0 }
-        note("赔另外三家各 \(game.rules.falseWinPenalty) 分，不算一局。")
+        note("赔在场其余每家 \(game.rules.falseWinPenalty) 分，本局继续。")
     }
 
     // MARK: 小部件

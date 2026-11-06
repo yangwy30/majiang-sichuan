@@ -1,99 +1,153 @@
 import Foundation
 
-/// 照片拍不出来、要从牌局或用户确认里拿的算番条件。
+/// 照片拍不出来、要从牌局或用户确认里拿的川麻算番条件。
 public struct WinContext: Hashable, Codable, Sendable {
     public var prevalentWind: Wind
     public var seatWind: Wind
     public var selfDrawn: Bool
-    /// 立直（门前清听牌宣布立直）。
-    public var riichi: Bool
-    /// 双立直（第一巡无人副露时立直）。
-    public var doubleRiichi: Bool
-    /// 一发（立直后一巡内和牌，中间无人吃碰杠）。
-    public var ippatsu: Bool
-    /// 海底摸月（自摸）/ 河底捞鱼（点炮）。
+    /// 杠上开花（自摸 +1 番）。
+    public var gangShangHua: Bool
+    /// 杠上炮（点炮 +1 番，并触发呼叫转移）。
+    public var gangShangPao: Bool
+    /// 抢杠胡（点炮 +1 番）。
+    public var qiangGangHu: Bool
+    /// 海底捞月（自摸）/ 海底炮（点炮）+1 番。
     public var lastTileOfWall: Bool
-    /// 兼容旧字段。
-    public var lastTileOfItsKind: Bool
-    /// 岭上开花（自摸）/ 抢杠（点炮）。
-    public var kongInvolved: Bool
-    /// 宝牌总数（含表宝牌、赤宝牌、里宝牌）。每张 +1 翻，不算进起和役。
+    /// 天胡（庄家起手胡）。
+    public var tianHu: Bool
+    /// 地胡（闲家第一巡胡）。
+    public var diHu: Bool
+    /// 家规：是否开启「门清 +1 番」。
+    public var allowMenQing: Bool
+    /// 家规：是否开启「中张（断幺九）+1 番」。
+    public var allowZhongZhang: Bool
+    /// 家规：是否为「自摸加番」（true 时自摸 +1 番；false 为成都主流「自摸加底」）。
+    public var selfDrawnAddFan: Bool
+    /// 点杠花时，点直杠的那个人（当家规为「点杠花算点炮」时由该玩家包付）。
+    public var dianGangDiscarder: Int?
+
+    // 兼容旧字段
+    public var lastTileOfItsKind: Bool {
+        get { false }
+        set {}
+    }
+    public var kongInvolved: Bool {
+        get { gangShangHua || gangShangPao || qiangGangHu }
+        set {
+            if newValue {
+                if selfDrawn { gangShangHua = true } else { qiangGangHu = true }
+            } else {
+                gangShangHua = false
+                gangShangPao = false
+                qiangGangHu = false
+            }
+        }
+    }
     public var flowerCount: Int
 
     public init(
         prevalentWind: Wind = .east,
         seatWind: Wind = .east,
         selfDrawn: Bool = false,
-        riichi: Bool = false,
-        doubleRiichi: Bool = false,
-        ippatsu: Bool = false,
+        gangShangHua: Bool = false,
+        gangShangPao: Bool = false,
+        qiangGangHu: Bool = false,
         lastTileOfWall: Bool = false,
-        lastTileOfItsKind: Bool = false,
+        tianHu: Bool = false,
+        diHu: Bool = false,
+        allowMenQing: Bool = false,
+        allowZhongZhang: Bool = false,
+        selfDrawnAddFan: Bool = false,
+        dianGangDiscarder: Int? = nil,
         kongInvolved: Bool = false,
         flowerCount: Int = 0
     ) {
         self.prevalentWind = prevalentWind
         self.seatWind = seatWind
         self.selfDrawn = selfDrawn
-        self.riichi = riichi
-        self.doubleRiichi = doubleRiichi
-        self.ippatsu = ippatsu
+        self.gangShangHua = gangShangHua || (kongInvolved && selfDrawn)
+        self.gangShangPao = gangShangPao
+        self.qiangGangHu = qiangGangHu || (kongInvolved && !selfDrawn && !gangShangPao)
         self.lastTileOfWall = lastTileOfWall
-        self.lastTileOfItsKind = lastTileOfItsKind
-        self.kongInvolved = kongInvolved
+        self.tianHu = tianHu
+        self.diHu = diHu
+        self.allowMenQing = allowMenQing
+        self.allowZhongZhang = allowZhongZhang
+        self.selfDrawnAddFan = selfDrawnAddFan
+        self.dianGangDiscarder = dianGangDiscarder
         self.flowerCount = flowerCount
     }
 
     enum CodingKeys: String, CodingKey {
-        case prevalentWind, seatWind, selfDrawn, riichi, doubleRiichi, ippatsu
-        case lastTileOfWall, lastTileOfItsKind, kongInvolved, flowerCount
+        case prevalentWind, seatWind, selfDrawn
+        case gangShangHua, gangShangPao, qiangGangHu, lastTileOfWall
+        case tianHu, diHu, allowMenQing, allowZhongZhang, selfDrawnAddFan, dianGangDiscarder
+        case flowerCount
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey {
+        case kongInvolved
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try? decoder.container(keyedBy: LegacyCodingKeys.self)
         prevalentWind = try c.decodeIfPresent(Wind.self, forKey: .prevalentWind) ?? .east
         seatWind = try c.decodeIfPresent(Wind.self, forKey: .seatWind) ?? .east
-        selfDrawn = try c.decodeIfPresent(Bool.self, forKey: .selfDrawn) ?? false
-        riichi = try c.decodeIfPresent(Bool.self, forKey: .riichi) ?? false
-        doubleRiichi = try c.decodeIfPresent(Bool.self, forKey: .doubleRiichi) ?? false
-        ippatsu = try c.decodeIfPresent(Bool.self, forKey: .ippatsu) ?? false
+        let selfDrawn = try c.decodeIfPresent(Bool.self, forKey: .selfDrawn) ?? false
+        self.selfDrawn = selfDrawn
+        let legacyKong = try legacy?.decodeIfPresent(Bool.self, forKey: .kongInvolved) ?? false
+        gangShangHua = try c.decodeIfPresent(Bool.self, forKey: .gangShangHua) ?? (legacyKong && selfDrawn)
+        gangShangPao = try c.decodeIfPresent(Bool.self, forKey: .gangShangPao) ?? false
+        qiangGangHu = try c.decodeIfPresent(Bool.self, forKey: .qiangGangHu) ?? (legacyKong && !selfDrawn)
         lastTileOfWall = try c.decodeIfPresent(Bool.self, forKey: .lastTileOfWall) ?? false
-        lastTileOfItsKind = try c.decodeIfPresent(Bool.self, forKey: .lastTileOfItsKind) ?? false
-        kongInvolved = try c.decodeIfPresent(Bool.self, forKey: .kongInvolved) ?? false
+        tianHu = try c.decodeIfPresent(Bool.self, forKey: .tianHu) ?? false
+        diHu = try c.decodeIfPresent(Bool.self, forKey: .diHu) ?? false
+        allowMenQing = try c.decodeIfPresent(Bool.self, forKey: .allowMenQing) ?? false
+        allowZhongZhang = try c.decodeIfPresent(Bool.self, forKey: .allowZhongZhang) ?? false
+        selfDrawnAddFan = try c.decodeIfPresent(Bool.self, forKey: .selfDrawnAddFan) ?? false
+        dianGangDiscarder = try c.decodeIfPresent(Int.self, forKey: .dianGangDiscarder)
         flowerCount = try c.decodeIfPresent(Int.self, forKey: .flowerCount) ?? 0
     }
 }
 
 public struct ScoringResult: Hashable, Codable, Sendable {
     public let fans: [FanEntry]
-    /// 宝牌翻数（不算进起和役；役满时不额外加宝牌）。
+    /// 整手牌中「根」（4 张相同的牌）的总数（含已计入龙七对/十八罗汉的根）。
+    public let genCount: Int
+    /// 兼容字段（川麻无花牌，恒为 0）。
     public let flowerFan: Int
-    /// 符数（七对子固定 25 符，平和自摸 20 符，其余按 10 符进位，最少 30 符）。
+    /// 兼容字段。
     public let fu: Int
 
-    public init(fans: [FanEntry], flowerFan: Int = 0, fu: Int = 30) {
+    public init(fans: [FanEntry], genCount: Int = 0, flowerFan: Int = 0, fu: Int = 0) {
         self.fans = fans
+        self.genCount = genCount
         self.flowerFan = flowerFan
         self.fu = fu
     }
 
-    /// 不含宝牌的役种翻数。立直麻将要求至少 1 翻役才能和。
     public var fanWithoutFlowers: Int {
         fans.reduce(0) { $0 + $1.points }
     }
 
-    /// 含宝牌的总翻数。
+    /// 总番数（平胡 0 番，对对胡 1 番，清一色 2 番……）。
     public var totalFan: Int {
         fanWithoutFlowers + flowerFan
     }
 
-    public var isYakuman: Bool {
-        fans.contains { $0.fan.isYakuman }
+    /// 番型对应的基础倍数（$2^{\text{番数}}$，如 0 番 = 1 倍，1 番 = 2 倍，2 番 = 4 倍，3 番 = 8 倍）。
+    public var baseMultiplier: Int {
+        1 << min(max(0, totalFan), 20)
     }
 
-    /// 够不够起和翻数（立直麻将默认 1 翻起和，宝牌不计入）。
-    public func meetsMinimum(_ minimum: Int = 1) -> Bool {
-        fanWithoutFlowers >= minimum
+    public var isYakuman: Bool {
+        fans.contains { $0.fan.isLimitFan }
+    }
+
+    /// 是否满足起胡番数（四川麻将默认 0 番平胡即可起胡）。
+    public func meetsMinimum(_ minimum: Int = 0) -> Bool {
+        totalFan >= minimum
     }
 
     public func contains(_ fan: Fan) -> Bool {
@@ -104,37 +158,47 @@ public struct ScoringResult: Hashable, Codable, Sendable {
 public enum ScoringError: Error, Hashable, Sendable {
     case wrongTileCount
     case tileMoreThanFour
+    /// 花猪（万、筒、条三门俱全，未缺一门不能胡）。
+    case missingSuitRequired
     case notAWin
 }
 
-/// 日本立直麻将算番算符引擎（纯 Swift 实现，遵循高点法）。
+/// 四川麻将（血战到底 / 血流成河）算番与数「根」引擎。
 public enum FanCalculator {
     public static func score(_ hand: Hand, context: WinContext = WinContext()) -> Result<ScoringResult, ScoringError> {
-        guard hand.hasValidTileCount else { return .failure(.wrongTileCount) }
+        guard hand.hasValidTileCount, hand.melds.allSatisfy(\.isValid) else { return .failure(.wrongTileCount) }
         guard hand.overusedTiles.isEmpty else { return .failure(.tileMoreThanFour) }
+        guard !hand.isHuaZhu else { return .failure(.missingSuitRequired) }
 
         let candidates = evaluateAllCandidates(hand: hand, context: context)
-        guard let best = candidates.max(by: isBetterCandidate) else {
+        guard let best = candidates.max(by: { $0.totalFan < $1.totalFan }) else {
             return .failure(.notAWin)
         }
         return .success(best)
     }
 
-    /// 只看牌型能不能和（4 面子 + 1 雀头、七对子、国士无双），不管役种够不够 1 翻。
+    /// 判定这 14 张牌（含副露）在川麻规则下能不能胡（需缺一门，且满足 4 面子 + 1 对将 或 7 对子）。
     public static func isWinningShape(_ hand: Hand) -> Bool {
-        guard hand.hasValidTileCount, hand.overusedTiles.isEmpty else { return false }
-        if hand.melds.isEmpty {
-            if isKokushiShape(hand.concealed) || isChiitoitsuShape(hand.concealed) {
-                return true
-            }
+        guard hand.hasValidTileCount,
+              hand.melds.allSatisfy(\.isValid),
+              hand.overusedTiles.isEmpty,
+              !hand.isHuaZhu else { return false }
+        if hand.melds.isEmpty && isQiDuiShape(hand.concealed) {
+            return true
         }
         return !standardDecompositions(concealed: hand.concealed, neededGroups: 4 - hand.melds.count).isEmpty
     }
 
-    /// 13 张牌（含副露时立牌为 `13 - 3 * 副露数`）听哪些牌。已满 4 张的牌不算。
+    /// 13 张牌（含副露时立牌为 `13 - 3 * 副露数`）下叫听哪些牌（需满足缺一门，已满 4 张的牌不算）。
     public static func waitingTiles(melds: [Meld] = [], standing: [Tile]) -> [Tile] {
         guard melds.count * 3 + standing.count == 13, melds.allSatisfy(\.isValid) else { return [] }
-        let used = Dictionary(grouping: melds.flatMap(\.tiles) + standing, by: { $0 }).mapValues(\.count)
+        let existing = melds.flatMap(\.tiles) + standing
+        guard !existing.contains(where: \.isHonor) else { return [] }
+        let existingSuits = Set(existing.map(\.suit))
+        // 三门俱全已经是花猪，不可能下叫
+        guard existingSuits.count <= 2 else { return [] }
+
+        let used = Dictionary(grouping: existing, by: { $0 }).mapValues(\.count)
         guard used.values.allSatisfy({ $0 <= 4 }) else { return [] }
 
         return Tile.all.filter { candidate in
@@ -144,81 +208,51 @@ public enum FanCalculator {
         }
     }
 
-    // MARK: - 高点法候选评估
-
-    private static func isBetterCandidate(_ a: ScoringResult, _ b: ScoringResult) -> Bool {
-        // 先确保有役的排在无役前面
-        let aValid = a.fanWithoutFlowers > 0
-        let bValid = b.fanWithoutFlowers > 0
-        if aValid != bValid { return !aValid && bValid }
-
-        let aBase = Payment.basePoints(han: a.totalFan, fu: a.fu)
-        let bBase = Payment.basePoints(han: b.totalFan, fu: b.fu)
-        if aBase != bBase { return aBase < bBase }
-        if a.totalFan != b.totalFan { return a.totalFan < b.totalFan }
-        return a.fu < b.fu
-    }
+    // MARK: - 候选评估
 
     private static func evaluateAllCandidates(hand: Hand, context: WinContext) -> [ScoringResult] {
         var results: [ScoringResult] = []
-        let isMenzen = hand.melds.allSatisfy { $0.kind == .kong && $0.isConcealed }
+        let genCount = hand.genCount
 
-        // 1. 国士无双
-        if hand.melds.isEmpty && isKokushiShape(hand.concealed) {
-            let fans = [FanEntry(fan: .kokushi, count: 1)]
-            results.append(ScoringResult(fans: fans, flowerFan: 0, fu: 30))
+        // 1. 七对 / 龙七对 / 清七对 / 清龙七对（门前清 14 张，全为对子或四张）
+        if hand.melds.isEmpty && isQiDuiShape(hand.concealed) {
+            results.append(scoreQiDui(hand: hand, genCount: genCount, context: context))
         }
 
-        // 2. 七对子（7 个不同的对子，固定 25 符）
-        if hand.melds.isEmpty && isChiitoitsuShape(hand.concealed) {
-            results.append(scoreChiitoitsu(hand: hand, context: context))
-        }
-
-        // 3. 标准形（4 面子 + 1 雀头）
+        // 2. 标准形（4 面子 + 1 对将）
         let needed = 4 - hand.melds.count
         let decomps = standardDecompositions(concealed: hand.concealed, neededGroups: needed)
-        let winTile = hand.winningTile
         for decomp in decomps {
-            var targets = Set<WaitTarget>()
-            if decomp.pair == winTile {
-                targets.insert(.tanki)
-            }
-            for (idx, group) in decomp.groups.enumerated() {
-                switch group {
-                case .pung(let tile) where tile == winTile:
-                    targets.insert(.group(index: idx, wait: .shanpon))
-                case .chow(let start) where start.suit == winTile.suit && (start.rank...(start.rank + 2)).contains(winTile.rank):
-                    let r = start.rank
-                    let w = winTile.rank
-                    let wait: WaitKind
-                    if w == r + 1 {
-                        wait = .kanchan
-                    } else if (r == 1 && w == 3) || (r == 7 && w == 7) {
-                        wait = .penchan
-                    } else {
-                        wait = .ryanmen
-                    }
-                    targets.insert(.group(index: idx, wait: wait))
-                default:
-                    break
-                }
-            }
-            if targets.isEmpty {
-                targets.insert(.tanki)
-            }
-            for target in targets {
-                results.append(scoreStandard(hand: hand, decomp: decomp, target: target, isMenzen: isMenzen, context: context))
-            }
+            results.append(scoreStandard(hand: hand, decomp: decomp, genCount: genCount, context: context))
         }
 
         return results
     }
 
-    // MARK: - 牌型拆解
+    /// 川麻七对形态：14 张立牌，每种牌出现 2 张或 4 张（含龙七对、双龙七对、三龙七对）。
+    static func isQiDuiShape(_ tiles: [Tile]) -> Bool {
+        guard tiles.count == 14, tiles.allSatisfy(\.isNumbered) else { return false }
+        let counts = Dictionary(grouping: tiles, by: { $0 }).mapValues(\.count)
+        return counts.values.allSatisfy { $0 == 2 || $0 == 4 }
+    }
 
     private enum ConcealedGroup: Hashable {
         case chow(Tile)
         case pung(Tile)
+
+        var isChow: Bool {
+            if case .chow = self { return true }
+            return false
+        }
+
+        var tiles: [Tile] {
+            switch self {
+            case .chow(let s):
+                return [s, Tile(s.suit, s.rank + 1), Tile(s.suit, s.rank + 2)]
+            case .pung(let t):
+                return [t, t, t]
+            }
+        }
     }
 
     private struct Decomposition: Hashable {
@@ -226,53 +260,15 @@ public enum FanCalculator {
         var pair: Tile
     }
 
-    private enum WaitKind: Hashable {
-        case ryanmen
-        case shanpon
-        case kanchan
-        case penchan
-        case tanki
-
-        var fu: Int {
-            switch self {
-            case .ryanmen, .shanpon: return 0
-            case .kanchan, .penchan, .tanki: return 2
-            }
-        }
-    }
-
-    private enum WaitTarget: Hashable {
-        case tanki
-        case group(index: Int, wait: WaitKind)
-
-        var waitKind: WaitKind {
-            switch self {
-            case .tanki: return .tanki
-            case .group(_, let wait): return wait
-            }
-        }
-    }
-
-    private static func isKokushiShape(_ tiles: [Tile]) -> Bool {
-        guard tiles.count == 14 else { return false }
-        let counts = Dictionary(grouping: tiles, by: { $0 }).mapValues(\.count)
-        guard counts.count == 13 else { return false }
-        return counts.keys.allSatisfy(\.isTerminalOrHonor) && counts.values.contains(2)
-    }
-
-    private static func isChiitoitsuShape(_ tiles: [Tile]) -> Bool {
-        guard tiles.count == 14 else { return false }
-        let counts = Dictionary(grouping: tiles, by: { $0 }).mapValues(\.count)
-        return counts.count == 7 && counts.values.allSatisfy { $0 == 2 }
-    }
-
     private static func standardDecompositions(concealed: [Tile], neededGroups: Int) -> [Decomposition] {
-        guard neededGroups >= 0, concealed.count == neededGroups * 3 + 2 else { return [] }
-        var counts = [Int](repeating: 0, count: 34)
+        guard neededGroups >= 0,
+              concealed.count == neededGroups * 3 + 2,
+              concealed.allSatisfy(\.isNumbered) else { return [] }
+        var counts = [Int](repeating: 0, count: 27)
         for t in concealed { counts[tileIndex(t)] += 1 }
 
         var unique = Set<Decomposition>()
-        for pairIdx in 0..<34 where counts[pairIdx] >= 2 {
+        for pairIdx in 0..<27 where counts[pairIdx] >= 2 {
             counts[pairIdx] -= 2
             let pairTile = tileFromIndex(pairIdx)
             var current: [ConcealedGroup] = []
@@ -300,7 +296,7 @@ public enum FanCalculator {
                     counts[first] += 3
                 }
 
-                if first < 27 && (first % 9) <= 6 && counts[first + 1] > 0 && counts[first + 2] > 0 {
+                if (first % 9) <= 6 && counts[first + 1] > 0 && counts[first + 2] > 0 {
                     counts[first] -= 1
                     counts[first + 1] -= 1
                     counts[first + 2] -= 1
@@ -327,344 +323,140 @@ public enum FanCalculator {
         return Tile(suit, (index % 9) + 1)
     }
 
-    // MARK: - 七对子计分
+    // MARK: - 七对 / 龙七对计分
 
-    private static func scoreChiitoitsu(hand: Hand, context: WinContext) -> ScoringResult {
-        let allTiles = hand.allTiles
-        // 字一色（大七星）
-        if allTiles.allSatisfy(\.isHonor) {
-            return ScoringResult(fans: [FanEntry(fan: .tsuuiisou)], flowerFan: 0, fu: 25)
-        }
-
+    private static func scoreQiDui(hand: Hand, genCount: Int, context: WinContext) -> ScoringResult {
         var entries: [FanEntry] = []
-        appendSituationalYaku(to: &entries, isMenzen: true, context: context)
-        entries.append(FanEntry(fan: .chiitoitsu))
-        appendAllTileYaku(to: &entries, allTiles: allTiles, isMenzen: true, isStandard: false)
+        let isQing = hand.suits.count == 1
 
-        let sorted = entries.sorted { ($0.points, -$0.fan.rawValue) > ($1.points, -$1.fan.rawValue) }
-        let dora = max(0, context.flowerCount)
-        return ScoringResult(fans: sorted, flowerFan: dora, fu: 25)
+        if genCount >= 1 {
+            // 龙七对 / 清龙七对：自带第 1 根，不再重复算第 1 根；双龙/三龙七对额外加 (genCount - 1) 根
+            entries.append(FanEntry(fan: isQing ? .qingLongQiDui : .longQiDui))
+            let extraGen = genCount - 1
+            if extraGen > 0 {
+                entries.append(FanEntry(fan: .gen, count: extraGen))
+            }
+        } else {
+            entries.append(FanEntry(fan: isQing ? .qingQiDui : .qiDui))
+        }
+
+        appendAdditiveFans(to: &entries, hand: hand, isQiDui: true, context: context)
+        return ScoringResult(fans: sortEntries(entries), genCount: genCount)
     }
 
-    // MARK: - 标准形计分（4 面子 + 1 雀头）
-
-    private struct ResolvedGroup {
-        enum Kind {
-            case chow(Tile)
-            case triplet(Tile, isConcealed: Bool, isKong: Bool)
-        }
-        var kind: Kind
-
-        var tiles: [Tile] {
-            switch kind {
-            case .chow(let s):
-                return [s, Tile(s.suit, s.rank + 1), Tile(s.suit, s.rank + 2)]
-            case .triplet(let t, _, let isKong):
-                return Array(repeating: t, count: isKong ? 4 : 3)
-            }
-        }
-
-        var isChow: Bool {
-            if case .chow = kind { return true }
-            return false
-        }
-
-        var tripletTile: Tile? {
-            if case .triplet(let t, _, _) = kind { return t }
-            return nil
-        }
-
-        var isConcealedTriplet: Bool {
-            if case .triplet(_, let isConcealed, _) = kind { return isConcealed }
-            return false
-        }
-
-        var isKong: Bool {
-            if case .triplet(_, _, let isKong) = kind { return isKong }
-            return false
-        }
-
-        var fu: Int {
-            switch kind {
-            case .chow:
-                return 0
-            case .triplet(let tile, let isConcealed, let isKong):
-                let yaochu = tile.isTerminalOrHonor
-                switch (isKong, isConcealed) {
-                case (false, false): return yaochu ? 4 : 2
-                case (false, true):  return yaochu ? 8 : 4
-                case (true, false):  return yaochu ? 16 : 8
-                case (true, true):   return yaochu ? 32 : 16
-                }
-            }
-        }
-    }
+    // MARK: - 标准形（4 面子 + 1 对将）计分
 
     private static func scoreStandard(
         hand: Hand,
         decomp: Decomposition,
-        target: WaitTarget,
-        isMenzen: Bool,
+        genCount: Int,
         context: WinContext
     ) -> ScoringResult {
-        var groups: [ResolvedGroup] = []
-        for meld in hand.melds {
-            switch meld.kind {
-            case .chow:
-                groups.append(ResolvedGroup(kind: .chow(meld.tiles[0])))
-            case .pung:
-                groups.append(ResolvedGroup(kind: .triplet(meld.tiles[0], isConcealed: false, isKong: false)))
-            case .kong:
-                groups.append(ResolvedGroup(kind: .triplet(meld.tiles[0], isConcealed: meld.isConcealed, isKong: true)))
-            }
-        }
-        for (idx, g) in decomp.groups.enumerated() {
-            switch g {
-            case .chow(let s):
-                groups.append(ResolvedGroup(kind: .chow(s)))
-            case .pung(let t):
-                let completedByRon: Bool
-                if case .group(let targetIdx, _) = target, targetIdx == idx, !context.selfDrawn {
-                    completedByRon = true
-                } else {
-                    completedByRon = false
-                }
-                groups.append(ResolvedGroup(kind: .triplet(t, isConcealed: !completedByRon, isKong: false)))
-            }
-        }
-
-        let pair = decomp.pair
-        let wait = target.waitKind
         let allTiles = hand.allTiles
+        let isQing = hand.suits.count == 1
+        let isAllTriplets = hand.melds.allSatisfy { $0.kind == .pung || $0.kind == .kong }
+            && decomp.groups.allSatisfy { !$0.isChow }
+        let isJinGouDiao = isAllTriplets && hand.melds.count == 4 && hand.concealed.count == 2
+        let isShiBaLuoHan = isJinGouDiao && hand.kongCount == 4
+        let isJiang = isAllTriplets && allTiles.allSatisfy(\.isJiang)
 
-        // 平和判定：门前清（且无暗杠）、4 组顺子、雀头非役牌、两面听
-        let isYakuhaiPair = pair == context.seatWind.tile
-            || pair == context.prevalentWind.tile
-            || (pair.suit == .honors && pair.rank >= 5)
-        let isPinfu = hand.melds.isEmpty
-            && groups.allSatisfy(\.isChow)
-            && !isYakuhaiPair
-            && wait == .ryanmen
+        let allGroupTiles: [[Tile]] = hand.melds.map(\.tiles) + decomp.groups.map(\.tiles)
+        let isDaiYao = allGroupTiles.allSatisfy { $0.contains(where: \.isTerminal) } && decomp.pair.isTerminal
 
-        // 符数计算
-        let fu: Int
-        if isPinfu {
-            fu = context.selfDrawn ? 20 : 30
-        } else {
-            var rawFu = 20
-            if isMenzen && !context.selfDrawn {
-                rawFu += 10
-            } else if context.selfDrawn {
-                rawFu += 2
-            }
-            if pair.suit == .honors && pair.rank >= 5 { rawFu += 2 }
-            if pair == context.seatWind.tile { rawFu += 2 }
-            if pair == context.prevalentWind.tile { rawFu += 2 }
-            rawFu += wait.fu
-            for g in groups { rawFu += g.fu }
-            let rounded = ((rawFu + 9) / 10) * 10
-            fu = max(30, rounded)
-        }
-
-        // 先检查役满
-        let yakuman = evaluateStandardYakuman(hand: hand, groups: groups, pair: pair, isMenzen: isMenzen)
-        if !yakuman.isEmpty {
-            return ScoringResult(fans: yakuman, flowerFan: 0, fu: fu)
-        }
-
-        // 普通役种
         var entries: [FanEntry] = []
-        appendSituationalYaku(to: &entries, isMenzen: isMenzen, context: context)
-        if isPinfu {
-            entries.append(FanEntry(fan: .pinfu))
-        }
 
-        let chows = groups.compactMap { g -> Tile? in
-            if case .chow(let s) = g.kind { return s }
-            return nil
-        }
-        let triplets = groups.compactMap(\.tripletTile)
-        let ankouCount = groups.filter(\.isConcealedTriplet).count
-        let kongCount = groups.filter(\.isKong).count
-
-        // 一杯口 / 二杯口（门前限定）
-        if isMenzen {
-            let chowCounts = Dictionary(grouping: chows, by: { $0 }).mapValues(\.count)
-            let pairCount = chowCounts.values.reduce(0) { $0 + ($1 / 2) }
-            if pairCount == 2 {
-                entries.append(FanEntry(fan: .ryanpeiko))
-            } else if pairCount == 1 {
-                entries.append(FanEntry(fan: .iipeiko))
-            }
-        }
-
-        // 役牌（自风、场风、白、发、中）
-        for t in triplets {
-            if t == context.seatWind.tile { entries.append(FanEntry(fan: .seatWind)) }
-            if t == context.prevalentWind.tile { entries.append(FanEntry(fan: .prevalentWind)) }
-            if t == Tile(.honors, 7) { entries.append(FanEntry(fan: .whiteDragon)) }
-            if t == Tile(.honors, 6) { entries.append(FanEntry(fan: .greenDragon)) }
-            if t == Tile(.honors, 5) { entries.append(FanEntry(fan: .redDragon)) }
-        }
-
-        // 三色同顺
-        let chowSet = Set(chows)
-        if (1...7).contains(where: { r in
-            chowSet.contains(Tile(.characters, r))
-                && chowSet.contains(Tile(.dots, r))
-                && chowSet.contains(Tile(.bamboo, r))
-        }) {
-            entries.append(makeEntry(.sanshokuDoujun, isMenzen: isMenzen))
-        }
-
-        // 一气通贯
-        if [Suit.characters, .dots, .bamboo].contains(where: { s in
-            chowSet.contains(Tile(s, 1)) && chowSet.contains(Tile(s, 4)) && chowSet.contains(Tile(s, 7))
-        }) {
-            entries.append(makeEntry(.ittsuu, isMenzen: isMenzen))
-        }
-
-        // 对对和 / 三暗刻 / 三杠子 / 三色同刻 / 小三元
-        if triplets.count == 4 {
-            entries.append(FanEntry(fan: .toitoi))
-        }
-        if ankouCount == 3 {
-            entries.append(FanEntry(fan: .sanankou))
-        }
-        if kongCount == 3 {
-            entries.append(FanEntry(fan: .sankantsu))
-        }
-        let tripletSet = Set(triplets)
-        if (1...9).contains(where: { r in
-            tripletSet.contains(Tile(.characters, r))
-                && tripletSet.contains(Tile(.dots, r))
-                && tripletSet.contains(Tile(.bamboo, r))
-        }) {
-            entries.append(FanEntry(fan: .sanshokuDoukou))
-        }
-        let dragons: [Tile] = [Tile(.honors, 5), Tile(.honors, 6), Tile(.honors, 7)]
-        if dragons.filter({ tripletSet.contains($0) }).count == 2 && dragons.contains(pair) {
-            entries.append(FanEntry(fan: .shousangen))
-        }
-
-        // 整手牌相关役（断幺九、混老头、混一色、清一色）
-        appendAllTileYaku(to: &entries, allTiles: allTiles, isMenzen: isMenzen, isStandard: true)
-
-        // 纯全带幺九 / 混全带幺九（必须至少有一组顺子，否则是清老头或混老头）
-        if !chows.isEmpty {
-            let allGroupsHaveTerminal = groups.allSatisfy { $0.tiles.contains(where: \.isTerminal) } && pair.isTerminal
-            let allGroupsHaveYaochu = groups.allSatisfy { $0.tiles.contains(where: \.isTerminalOrHonor) } && pair.isTerminalOrHonor
-            if allGroupsHaveTerminal {
-                entries.append(makeEntry(.junchan, isMenzen: isMenzen))
-            } else if allGroupsHaveYaochu {
-                entries.append(makeEntry(.chanta, isMenzen: isMenzen))
-            }
-        }
-
-        let sorted = entries.sorted { ($0.points, -$0.fan.rawValue) > ($1.points, -$1.fan.rawValue) }
-        let dora = max(0, context.flowerCount)
-        return ScoringResult(fans: sorted, flowerFan: dora, fu: fu)
-    }
-
-    private static func evaluateStandardYakuman(
-        hand: Hand,
-        groups: [ResolvedGroup],
-        pair: Tile,
-        isMenzen: Bool
-    ) -> [FanEntry] {
-        var yakuman: [FanEntry] = []
-        let allTiles = hand.allTiles
-        let triplets = Set(groups.compactMap(\.tripletTile))
-        let ankouCount = groups.filter(\.isConcealedTriplet).count
-        let kongCount = groups.filter(\.isKong).count
-
-        if ankouCount == 4 {
-            yakuman.append(FanEntry(fan: .suuankou))
-        }
-        let dragons: [Tile] = [Tile(.honors, 5), Tile(.honors, 6), Tile(.honors, 7)]
-        if dragons.allSatisfy({ triplets.contains($0) }) {
-            yakuman.append(FanEntry(fan: .daisangen))
-        }
-        let winds: [Tile] = [Tile(.honors, 1), Tile(.honors, 2), Tile(.honors, 3), Tile(.honors, 4)]
-        let windTriplets = winds.filter { triplets.contains($0) }.count
-        if windTriplets == 4 {
-            yakuman.append(FanEntry(fan: .daisuushii))
-        } else if windTriplets == 3 && winds.contains(pair) {
-            yakuman.append(FanEntry(fan: .shousuushii))
-        }
-        if allTiles.allSatisfy(\.isHonor) {
-            yakuman.append(FanEntry(fan: .tsuuiisou))
-        }
-        if allTiles.allSatisfy(\.isTerminal) {
-            yakuman.append(FanEntry(fan: .chinroutou))
-        }
-        let greenTiles: Set<Tile> = [
-            Tile(.bamboo, 2), Tile(.bamboo, 3), Tile(.bamboo, 4),
-            Tile(.bamboo, 6), Tile(.bamboo, 8), Tile(.honors, 6),
-        ]
-        if allTiles.allSatisfy({ greenTiles.contains($0) }) {
-            yakuman.append(FanEntry(fan: .ryuuiisou))
-        }
-        if isMenzen && hand.melds.isEmpty && isChuurenPoutou(hand.concealed) {
-            yakuman.append(FanEntry(fan: .chuurenPoutou))
-        }
-        if kongCount == 4 {
-            yakuman.append(FanEntry(fan: .suukantsu))
-        }
-        return yakuman
-    }
-
-    private static func isChuurenPoutou(_ concealed: [Tile]) -> Bool {
-        guard concealed.count == 14, let suit = concealed.first?.suit, suit != .honors else { return false }
-        guard concealed.allSatisfy({ $0.suit == suit }) else { return false }
-        var rankCounts = [Int](repeating: 0, count: 10)
-        for t in concealed { rankCounts[t.rank] += 1 }
-        guard rankCounts[1] >= 3, rankCounts[9] >= 3 else { return false }
-        for r in 2...8 where rankCounts[r] < 1 { return false }
-        return true
-    }
-
-    private static func appendSituationalYaku(to entries: inout [FanEntry], isMenzen: Bool, context: WinContext) {
-        if isMenzen {
-            if context.doubleRiichi {
-                entries.append(FanEntry(fan: .doubleRiichi))
-            } else if context.riichi {
-                entries.append(FanEntry(fan: .riichi))
-            }
-            if (context.riichi || context.doubleRiichi) && context.ippatsu {
-                entries.append(FanEntry(fan: .ippatsu))
-            }
-            if context.selfDrawn {
-                entries.append(FanEntry(fan: .menzenTsumo))
-            }
-        }
-        if context.kongInvolved {
-            entries.append(FanEntry(fan: context.selfDrawn ? .rinshan : .chankan))
-        } else if context.lastTileOfWall {
-            entries.append(FanEntry(fan: context.selfDrawn ? .haitei : .houtei))
-        }
-    }
-
-    private static func appendAllTileYaku(to entries: inout [FanEntry], allTiles: [Tile], isMenzen: Bool, isStandard: Bool) {
-        if allTiles.allSatisfy(\.isSimple) {
-            entries.append(FanEntry(fan: .tanyao))
-        }
-        if allTiles.allSatisfy(\.isTerminalOrHonor) && !allTiles.allSatisfy(\.isTerminal) && !allTiles.allSatisfy(\.isHonor) {
-            entries.append(FanEntry(fan: .honroutou))
-        }
-        let suitedSuits = Set(allTiles.filter(\.isSuited).map(\.suit))
-        let hasHonors = allTiles.contains(where: \.isHonor)
-        if suitedSuits.count == 1 {
-            if hasHonors {
-                entries.append(makeEntry(.honitsu, isMenzen: isMenzen))
+        if isShiBaLuoHan {
+            entries.append(FanEntry(fan: .shiBaLuoHan))
+            if isQing { entries.append(FanEntry(fan: .qingYiSe)) }
+            if isJiang { entries.append(FanEntry(fan: .jiangDui)) }
+        } else if isJinGouDiao {
+            if isQing && isJiang {
+                entries.append(FanEntry(fan: .qingJinGouDiao))
+                entries.append(FanEntry(fan: .jiangDui))
+            } else if isQing {
+                entries.append(FanEntry(fan: .qingJinGouDiao))
+            } else if isJiang {
+                entries.append(FanEntry(fan: .jiangJinGou))
             } else {
-                entries.append(makeEntry(.chinitsu, isMenzen: isMenzen))
+                entries.append(FanEntry(fan: .jinGouDiao))
             }
+        } else if isAllTriplets {
+            if isQing && isJiang {
+                entries.append(FanEntry(fan: .qingYiSe))
+                entries.append(FanEntry(fan: .jiangDui))
+            } else if isJiang {
+                entries.append(FanEntry(fan: .jiangDui))
+            } else if isQing {
+                entries.append(FanEntry(fan: .qingDui))
+            } else if isDaiYao {
+                entries.append(FanEntry(fan: .daiYaoJiu))
+                entries.append(FanEntry(fan: .duiDuiHu))
+            } else {
+                entries.append(FanEntry(fan: .duiDuiHu))
+            }
+        } else {
+            if isQing && isDaiYao {
+                entries.append(FanEntry(fan: .qingDaiYao))
+            } else if isDaiYao {
+                entries.append(FanEntry(fan: .daiYaoJiu))
+            } else if isQing {
+                entries.append(FanEntry(fan: .qingYiSe))
+            } else {
+                entries.append(FanEntry(fan: .pingHu))
+            }
+        }
+
+        // 根（十八罗汉已包含 4 杠，其余牌型每有 4 张同牌 +1 番）
+        if !isShiBaLuoHan && genCount > 0 {
+            entries.append(FanEntry(fan: .gen, count: genCount))
+        }
+
+        appendAdditiveFans(to: &entries, hand: hand, isQiDui: false, context: context)
+        return ScoringResult(fans: sortEntries(entries), genCount: genCount)
+    }
+
+    private static func appendAdditiveFans(to entries: inout [FanEntry], hand: Hand, isQiDui: Bool, context: WinContext) {
+        if context.tianHu {
+            entries.append(FanEntry(fan: .tianHu))
+        } else if context.diHu {
+            entries.append(FanEntry(fan: .diHu))
+        }
+
+        if context.gangShangHua {
+            entries.append(FanEntry(fan: .gangShangHua))
+        } else if context.gangShangPao {
+            entries.append(FanEntry(fan: .gangShangPao))
+        } else if context.qiangGangHu {
+            entries.append(FanEntry(fan: .qiangGangHu))
+        }
+
+        if context.lastTileOfWall {
+            entries.append(FanEntry(fan: context.selfDrawn ? .haiDiLaoYue : .haiDiPao))
+        }
+
+        // 可选家规：门清（无碰、无明杠；七对本身已要求门前清，标准形或家规开启时计门清）
+        if context.allowMenQing && hand.isConcealedHand && !isQiDui {
+            entries.append(FanEntry(fan: .menQing))
+        }
+
+        // 可选家规：中张（断幺九，全 2–8）
+        if context.allowZhongZhang && hand.allTiles.allSatisfy(\.isSimple) {
+            entries.append(FanEntry(fan: .zhongZhang))
+        }
+
+        // 可选家规：自摸加番
+        if context.selfDrawn && context.selfDrawnAddFan {
+            entries.append(FanEntry(fan: .ziMoJiaFan))
         }
     }
 
-    private static func makeEntry(_ fan: Fan, isMenzen: Bool) -> FanEntry {
-        let actual = fan.effectivePoints(isMenzen: isMenzen)
-        return FanEntry(fan: fan, count: 1, han: actual == fan.points ? nil : actual)
+    private static func sortEntries(_ entries: [FanEntry]) -> [FanEntry] {
+        // 如果已经有高番主牌型或其他加番，平胡（0 番）保留在最前或当总番 > 0 且存在 >0 番主牌型时不冗余展示；
+        // 但平胡 + 根 / 平胡 + 杠上花 时保留「平胡（0番）」+「根（1番）」非常直观。
+        entries.sorted { lhs, rhs in
+            if lhs.fan == .pingHu && rhs.fan != .pingHu { return true }
+            if rhs.fan == .pingHu && lhs.fan != .pingHu { return false }
+            return (lhs.points, -lhs.fan.rawValue) > (rhs.points, -rhs.fan.rawValue)
+        }
     }
 }

@@ -22,9 +22,9 @@ public struct RecognizedTile: Hashable, Codable, Sendable, Identifiable {
 
 /// 一张照片的识别结果。
 public struct Recognition: Hashable, Codable, Sendable {
-    /// 立牌，从左到右，包括和的那张（放在最右）。
+    /// 立牌，从左到右，包括胡的那张（放在最右）。
     public var concealed: [RecognizedTile]
-    /// 摆在旁边的吃、碰、杠。
+    /// 摆在旁边的碰、杠。
     public var melds: [Meld]
     public var flowerCount: Int
     /// 哪一路识别出来的，例如「Gemini」「端侧」「双读」。
@@ -43,7 +43,7 @@ public struct Recognition: Hashable, Codable, Sendable {
         self.init(concealed: tiles.map { RecognizedTile(tile: $0) }, melds: melds, flowerCount: flowerCount, source: source)
     }
 
-    /// 按当前读法组成的手牌，和张取最右一张。
+    /// 按当前读法组成的手牌，胡张取最右一张。
     public var hand: Hand {
         let tiles = concealed.map(\.tile)
         return Hand(melds: melds, concealed: tiles, winningTile: tiles.last)
@@ -107,8 +107,7 @@ public protocol ProgressiveTileRecognizer: TileRecognizer {
 // MARK: - 端侧模型
 
 /// 端侧认牌：检测模型找出每张牌，`TileLayout` 去掉画面里别人的牌、排成手牌。几十到几百毫秒出结果，不用联网。
-/// 分不出吃碰杠（都当立牌），双读时副露以 Gemini 为准。
-/// 模型见 `CoreMLTileDetector`。
+/// 分不出碰杠（都当立牌），双读时副露以 Gemini 为准。
 public struct OnDeviceRecognizer: TileRecognizer {
     public let name = "端侧"
     public var detector: TileDetecting?
@@ -128,7 +127,7 @@ public struct OnDeviceRecognizer: TileRecognizer {
 
 // MARK: - 假数据
 
-/// 开发和演示用：不看照片，按顺序返回预设的手牌。
+/// 开发和演示用：不看照片，按顺序返回预设的川麻手牌。
 public struct MockRecognizer: TileRecognizer {
     public let name: String
     public var samples: [Recognition]
@@ -147,17 +146,20 @@ public struct MockRecognizer: TileRecognizer {
         return samples[counter.next() % samples.count]
     }
 
-    /// 清一色（mockup 里那手）带一张两路读得不一样的牌；一手带碰和暗杠的；一手不成和、需要改牌的。
+    /// 川麻演示样本：
+    /// 0. 清一色带一张两路读法不一致的牌；
+    /// 1. 对对胡带碰和暗杠（缺条子）；
+    /// 2. 缺一门但差一张不成胡、需要改牌的手牌。
     public static let defaultSamples: [Recognition] = {
         var flush = Recognition(concealed: Tile.parseList("1112233445566p 7p"), source: "演示")
         flush.concealed[9] = RecognizedTile(tile: Tile(.dots, 5), alternatives: [Tile(.dots, 4)])
 
         let melded = Recognition(
-            concealed: Tile.parseList("123m 567m 中中"),
-            melds: [.pung(Tile(.honors, 1)), .kong(Tile(.characters, 9), concealed: true)],
-            flowerCount: 2, source: "演示")
+            concealed: Tile.parseList("123m 567m 88p"),
+            melds: [.pung(Tile(.dots, 2)), .kong(Tile(.characters, 9), concealed: true)],
+            flowerCount: 0, source: "演示")
 
-        let misread = Recognition(concealed: Tile.parseList("234m 456p 567s 234s 5m 6m"), source: "演示")
+        let misread = Recognition(concealed: Tile.parseList("234m 456m 567p 234p 5m 6m"), source: "演示")
         return [flush, melded, misread]
     }()
 

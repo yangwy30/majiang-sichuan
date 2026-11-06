@@ -106,9 +106,8 @@ struct HomeView: View {
                 Spacer()
                 moreMenu
             }
-            // 记过几手就不用再说 App 是干什么的
             if !model.isSeasoned {
-                Text("打完一手，拍一下和牌的人的牌，App 帮你算番记账。")
+                Text("血战到底 · 血流成河：拍一下自动算番数根、查花猪大叫，局内刮风下雨与流局退税全自动记账。")
                     .font(.system(size: 15))
                     .foregroundStyle(Theme.gray)
                     .fixedSize(horizontal: false, vertical: true)
@@ -163,7 +162,7 @@ private struct MoreSheet: View {
                 .font(.system(size: 20, weight: .semibold))
                 .padding(.top, 28)
                 .padding(.bottom, 8)
-            row("役与点数怎么算", "立直日麻的役种和点数收付，都是白话", .guide, last: false)
+            row("川麻番种与退税怎么算", "血战/血流番数、根、刮风下雨、呼叫转移与查大叫速查", .guide, last: false)
             row("备份与换手机", backupLine, .backup, last: !showsInvite)
             if showsInvite {
                 row(inviteOn ? "AI 认牌 · 已开启" : "AI 认牌", inviteOn ? "看邀请码，或者移除" : "有邀请码就能开启，认牌更准",
@@ -303,7 +302,7 @@ private struct EmptyHome<More: View>: View {
         .bottomBar {
             Button("开一局", action: start)
                 .buttonStyle(.primary)
-            Button("第一次打日麻？先看看役和点数怎么算", action: openGuide)
+            Button("四川麻将怎么算番？看看番种、刮风下雨与查大叫", action: openGuide)
                 .buttonStyle(.text(size: 14))
                 .padding(.top, 10)
             // 新手机上没装 iCloud 同步时，从旧手机导出的文件导入
@@ -316,12 +315,12 @@ private struct EmptyHome<More: View>: View {
 private extension EmptyHome {
     var brand: some View {
         HStack(spacing: 12) {
-            Text("和")
+            Text("胡")
                 .font(Theme.serif(17))
                 .foregroundStyle(.white)
                 .frame(width: 30, height: 30)
                 .background(Theme.vermilion, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            Text("拍照算番").font(.system(size: 17, weight: .semibold))
+            Text("四川麻将 · 拍照算番").font(.system(size: 17, weight: .semibold))
         }
         .accessibilityElement(children: .combine)
         #if DEBUG
@@ -333,30 +332,30 @@ private extension EmptyHome {
     var headline: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("拍一下，")
-            Text("番和钱都算好。")
+            Text("算番、查叫、退税全搞定。")
         }
-        .font(Theme.serif(32, semibold: true))
+        .font(Theme.serif(30, semibold: true))
     }
 
     func steps(rowPadding: CGFloat) -> some View {
         VStack(spacing: 0) {
-            StepRow(number: "一", title: "拍", detail: "和牌的人把牌推倒，拍一张", padding: rowPadding) {
+            StepRow(number: "一", title: "拍", detail: "胡牌拍 14 张算番数根，荒庄拍 13 张查花猪大叫", padding: rowPadding) {
                 HStack(spacing: 2) {
                     ForEach(Array(Tile.parseList("12355p").enumerated()), id: \.offset) { _, tile in
                         TileFace(tile: tile, width: 16)
                     }
                 }
             }
-            StepRow(number: "二", title: "算", detail: "认出牌，算役、翻、符与点数", padding: rowPadding) {
+            StepRow(number: "二", title: "算", detail: "自动检缺一门、清对、龙七对与根，算准几番几倍", padding: rowPadding) {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("8").font(Theme.score(30, weight: .ultraLight))
-                    Text("翻").font(Theme.serif(13, semibold: true))
+                    Text("4").font(Theme.score(30, weight: .ultraLight))
+                    Text("番").font(Theme.serif(13, semibold: true))
                 }
             }
-            StepRow(number: "三", title: "记", detail: "谁给谁多少点，自动记账", padding: rowPadding) {
+            StepRow(number: "三", title: "记", detail: "刮风下雨、杠上炮呼叫转移、流局未下叫自动退税", padding: rowPadding) {
                 VStack(alignment: .trailing, spacing: 0) {
-                    Text("+8000").foregroundStyle(Theme.vermilion)
-                    Text("−4000").foregroundStyle(Theme.ink)
+                    Text("+16").foregroundStyle(Theme.vermilion)
+                    Text("−16").foregroundStyle(Theme.ink)
                 }
                 .font(Theme.score(15))
             }
