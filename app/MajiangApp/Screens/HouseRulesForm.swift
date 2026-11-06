@@ -322,7 +322,7 @@ enum RuleItem: String, Identifiable, CaseIterable {
             if rules.fanCap == 0 { return ("不封顶", "", false) }
             return ("\(rules.fanCap)番(\(1 << rules.fanCap)倍)", "", false)
         case .zimo: return (rules.zimoRule.name, "", false)
-        case .rate: return (rules.yuanPerPoint.yuanText, "元", true)
+        case .rate: return (rules.yuanPerPoint.cleanNumber, "元", true)
         case .rounds: return ("\(rules.totalHands)", "局", true)
         case .dianGangHua: return (rules.dianGangHuaRule == .asZimo ? "算自摸" : "算点炮", "", false)
         case .menQing: return (rules.allowMenQing ? "+1 番" : "不计", "", false)
@@ -352,9 +352,10 @@ enum RuleItem: String, Identifiable, CaseIterable {
                 RuleOption(label: "自摸加番", tag: "番数 +1（翻倍）", isSelected: { $0.zimoRule == .addFan }, apply: { $0.zimoRule = .addFan }),
             ]
         case .rate:
-            return [0.5, 1, 2, 5, 10].map { r in
+            let rates: [Double] = [0.5, 1, 2, 5, 10]
+            return rates.map { r in
                 RuleOption(
-                    label: "1 分算 \(r.yuanText) 元",
+                    label: "1 分算 \(r.cleanNumber) 元",
                     tag: r == 1 ? "默认" : nil,
                     isSelected: { $0.yuanPerPoint == r },
                     apply: { $0.yuanPerPoint = r }

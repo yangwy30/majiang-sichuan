@@ -158,6 +158,38 @@ final class GameTests: XCTestCase {
         rules.zimoRule = .addFan
         try game.changeRules(rules)
         XCTAssertEqual(game.scores, [24, -8, -8, -8])
+        XCTAssertEqual(game.rules.paidFan(try XCTUnwrap(game.records.first?.outcome.win)), 3)
+
+        // 若点杠花算点炮 + 自摸加番：点杠花不享受自摸加番（仍为 2 番 = 4 倍）
+        rules.dianGangHuaRule = .asDianPao
+        try game.changeRules(rules)
+        XCTAssertEqual(game.rules.paidFan(try XCTUnwrap(game.records.first?.outcome.win)), 2)
+        XCTAssertEqual(game.scores, [4, 0, -4, 0])
+    }
+
+    func testSichuanDealerRotationAndPlayedHandsCount() throws {
+        var game = makeGame(mode: .xuezhan)
+        XCTAssertEqual(game.dealer, 0, "第 1 局东起手坐庄")
+        XCTAssertEqual(game.playedHandsCount, 0)
+
+        // 1. 第 1 局：玩家 2 一胡自摸 -> 局中尚未结束时 playedHandsCount 已记为 1 局
+        try game.recordWin(win(2, discarder: nil, fan: 1))
+        XCTAssertEqual(game.playedHandsCount, 1)
+        try game.recordDraw() // 结第 1 局
+        XCTAssertEqual(game.currentHandIndex, 1)
+        XCTAssertEqual(game.dealer, 2, "一胡玩家 2 在下一局坐庄")
+
+        // 2. 第 2 局：荒庄无人胡 -> 连庄（仍为玩家 2）
+        try game.recordDraw()
+        XCTAssertEqual(game.currentHandIndex, 2)
+        XCTAssertEqual(game.dealer, 2, "荒庄流局连庄")
+
+        // 3. 第 3 局：玩家 3 打出一张牌，玩家 0 和玩家 1 一炮双响 -> 点炮者 3 在下一局坐庄
+        try game.recordWin(win(0, discarder: 3, fan: 1))
+        try game.recordWin(win(1, discarder: 3, fan: 1))
+        try game.recordDraw()
+        XCTAssertEqual(game.currentHandIndex, 3)
+        XCTAssertEqual(game.dealer, 3, "一炮多响由点炮者坐庄")
     }
 
     func testXueliuAllowsSamePlayerToWinMultipleTimesInOneRound() throws {

@@ -14,8 +14,8 @@ struct CheckView: View {
     @State private var actionMeld: Int?
     @State private var confirmFalseWin = false
     @State private var rareOpen = false
-    /// 牌一张张落进格子里（从拍照页升上来时）。
-    @State private var landed = false
+    /// 牌一张张落进格子里（从拍照页升上来时）。截图模式直接到位。
+    @State private var landed = DemoScreen.current != nil
     /// 再认一遍时牌从这个时刻开始翻，等落定以后。
     @State private var flipStart = Date()
     /// 再认一遍等久了才给「不等了」。

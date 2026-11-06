@@ -244,7 +244,7 @@ private struct HistoryRow: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(game.startedAt.dayLabel).font(.system(size: 16, weight: .medium))
-                    Text(game.players.map(\.name).joined(separator: "、") + " · \(game.currentHandIndex) 局")
+                    Text(game.players.map(\.name).joined(separator: "、") + " · \(game.playedHandsCount) 局")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
                         .lineLimit(1)

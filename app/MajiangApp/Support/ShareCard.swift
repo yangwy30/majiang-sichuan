@@ -60,7 +60,7 @@ struct ShareCard: View {
                 Text(game.isFinished ? "打完了" : "打到\(game.handLabel)")
                     .font(.system(size: 26, weight: .semibold))
                     .tracking(-0.3)
-                Text(game.isFinished ? "一共 \(game.currentHandIndex) 局 · \(game.rules.mode.name)"
+                Text(game.isFinished ? "一共 \(game.playedHandsCount) 局 · \(game.rules.mode.name)"
                      : "已打 \(game.currentHandIndex) 局 · 还剩 \(game.remainingHands) 局 · \(game.rules.mode.name)")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.gray)
@@ -81,9 +81,11 @@ struct ShareCard: View {
                         .font(.system(size: 17, weight: .medium))
                         .lineLimit(1)
                     Spacer(minLength: 8)
-                    Text(game.moneyText(scores[player]))
-                        .font(.system(size: 13).monospacedDigit())
-                        .foregroundStyle(Theme.gray)
+                    if game.rules.yuanPerPoint != 1 {
+                        Text(game.moneyText(scores[player]))
+                            .font(.system(size: 13).monospacedDigit())
+                            .foregroundStyle(Theme.gray)
+                    }
                     Text(Theme.signed(scores[player]))
                         .font(Theme.score(26))
                         .foregroundStyle(Theme.scoreColor(scores[player]))
@@ -170,7 +172,7 @@ extension Game {
     var shareText: String {
         let scores = self.scores
         var lines = [isFinished
-                     ? "四川麻将（\(rules.mode.shortName)）\(startedAt.dayLabel) · 打完了，一共 \(currentHandIndex) 局"
+                     ? "四川麻将（\(rules.mode.shortName)）\(startedAt.dayLabel) · 打完了，一共 \(playedHandsCount) 局"
                      : "四川麻将（\(rules.mode.shortName)）\(startedAt.dayLabel) · 打到\(handLabel)（已打 \(currentHandIndex) 局）"]
         for player in Settlement.ranking(scores: scores) {
             lines.append("\(players[player].name) \(Theme.signed(scores[player])) 分（\(moneyText(scores[player]))）")

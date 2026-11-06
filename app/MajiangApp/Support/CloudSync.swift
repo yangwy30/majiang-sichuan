@@ -19,7 +19,7 @@ final class CloudSync {
         case failed(String)
     }
 
-    static let containerID = "iCloud.com.yangwy30.majiang"
+    static let containerID = "iCloud.com.yangwy30.majiang.sichuan"
 
     private(set) var status: Status = .off
 
@@ -116,7 +116,7 @@ final class CloudSync {
         }
     }
 
-    private static let log = Logger(subsystem: "com.yangwy30.majiang", category: "CloudSync")
+    private static let log = Logger(subsystem: "com.yangwy30.majiang.sichuan", category: "CloudSync")
 
     private func prepareZone() async throws {
         guard !state.zoneReady else { return }

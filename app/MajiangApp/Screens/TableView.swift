@@ -94,7 +94,7 @@ struct TableView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("账本").font(.system(size: 14, weight: .medium))
                     Spacer()
-                    Text(game.isFinished ? "打了 \(game.currentHandIndex) 局"
+                    Text(game.isFinished ? "打了 \(game.playedHandsCount) 局"
                          : "第 \(min(game.currentHandIndex + 1, game.rules.totalHands)) / \(game.rules.totalHands) 局")
                         .font(.system(size: 14))
                 }
@@ -116,7 +116,7 @@ struct TableView: View {
                         RecordRow(number: index + 1, record: record, game: game)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint(record.isWin ? "点一下看这一把怎么胡的" : "点一下可以改或删掉这一条")
+                    .accessibilityHint(record.win != nil ? "点一下看这一把怎么胡的" : "点一下可以改或删掉这一条")
                 }
                 if !game.records.isEmpty && !model.isSeasoned {
                     Text("点一条记录，看那把怎么胡的；记错了也在里面改。")
@@ -280,7 +280,7 @@ struct TableView: View {
     }
 
     private func open(_ record: HandRecord, number: Int) {
-        guard record.isWin else {
+        guard record.win != nil else {
             editing = EditTarget(record: record, number: number)
             return
         }
@@ -770,80 +770,5 @@ private struct DrawSheet: View {
     private func isTing(_ state: PlayerTingState) -> Bool {
         if case .ting = state { return true }
         return false
-    }
-}
-
-// MARK: - 直接改分
-
-/// 四个人的加减分，加起来得是 0。
-private struct ManualScoreView: View {
-    @Environment(\.dismiss) private var dismiss
-    var game: Game
-    var save: ([Int], String) -> Void
-
-    @State private var inputs = ["", "", "", ""]
-    @State private var note = ""
-
-    private var deltas: [Int] {
-        inputs.map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-    }
-
-    private var sum: Int { deltas.reduce(0, +) }
-    private var canSave: Bool { sum == 0 && deltas.contains { $0 != 0 } }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("赢的填正数，输的填负数，四个人加起来要是 0。")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Theme.gray)
-
-                    VStack(spacing: 0) {
-                        ForEach(0..<4, id: \.self) { i in
-                            if i > 0 { Hairline(color: Theme.lineSoft) }
-                            HStack {
-                                Text(game.players[i].name).font(.system(size: 17, weight: .medium))
-                                Spacer()
-                                TextField("0", text: $inputs[i])
-                                    .keyboardType(.numbersAndPunctuation)
-                                    .multilineTextAlignment(.trailing)
-                                    .font(.system(size: 20).monospacedDigit())
-                                    .frame(width: 120)
-                            }
-                            .frame(minHeight: 54)
-                        }
-                    }
-                    .block()
-
-                    TextField("备注（可不填）", text: $note)
-                        .font(.system(size: 16))
-                        .padding(.vertical, 12)
-                        .overlay(alignment: .bottom) { Hairline() }
-
-                    if sum != 0 {
-                        Text("现在加起来是 \(Theme.signed(sum))，还差 \(Theme.signed(-sum)) 才平。")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.vermilion)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-            }
-            .bottomBar {
-                Button("记下") {
-                    save(deltas, note)
-                    dismiss()
-                }
-                .buttonStyle(.primary)
-                .disabled(!canSave)
-            }
-            .page()
-            .navigationTitle("直接改分")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                NavClose { dismiss() }
-            }
-        }
     }
 }

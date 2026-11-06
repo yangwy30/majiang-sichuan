@@ -175,6 +175,14 @@ final class FanCalculatorTests: XCTestCase {
         XCTAssertEqual(c3.waits.count, 9)
         XCTAssertEqual(c3.maxFan, 3)
         XCTAssertEqual(c3.bestWait?.tile, Tile(.dots, 1))
+
+        // 4. 开启门清中张家规时，13 张查大叫应把门清 (+1) 与中张 (+1) 计入大叫番数
+        let menQingZhongZhang13 = Hand(concealed: Tile.parseList("234m 456m 345p 678p 5m"))
+        var rules = GameRules.standard
+        XCTAssertEqual(WinAssistant.checkTing(menQingZhongZhang13, rules: rules).maxFan, 0)
+        rules.allowMenQing = true
+        rules.allowZhongZhang = true
+        XCTAssertEqual(WinAssistant.checkTing(menQingZhongZhang13, rules: rules).maxFan, 2)
     }
 
     func testErrors() {

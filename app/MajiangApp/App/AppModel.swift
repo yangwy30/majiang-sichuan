@@ -60,8 +60,8 @@ final class AppModel {
     static let defaultProxyURL = "https://majiang.acrossus.app/recognize"
     static let legacyProxyURL = "https://majiang-relay.yangwang9710.workers.dev/recognize"
 
-    /// AI 认牌的邀请码（中转站确认过才存）。走中转站时没码就不调 Gemini，只用端侧认牌。
-    private(set) var inviteCode: String? = InviteKeychain.read()
+    /// AI 认牌的邀请码（中转站确认过才存）。走中转站时没码就不调 Gemini，只用端侧认牌。截图模式下当还没填。
+    private(set) var inviteCode: String? = DemoScreen.current == nil ? InviteKeychain.read() : nil
     /// 认牌时码被中转站拒了（停用了之类），说一句为什么，邀请码页上显示。
     var inviteNotice: String?
 

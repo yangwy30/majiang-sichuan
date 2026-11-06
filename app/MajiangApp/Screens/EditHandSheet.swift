@@ -21,6 +21,7 @@ struct EditHandSheet: View {
     @State private var kongPlayer: Int
     @State private var kongKind: KongRecord.Kind
     @State private var kongDiscarder: Int?
+    @State private var tingStates: [PlayerTingState]
     @State private var offender: Int
     @State private var confirmDelete = false
 
@@ -31,6 +32,15 @@ struct EditHandSheet: View {
         self.number = number
         self.onSave = onSave
         self.onDelete = onDelete
+
+        let stateBefore = game.roundState(beforeRecord: record.id)
+        let defaultStates: [PlayerTingState] = (0..<4).map { p in
+            if game.rules.mode == .xuezhan && !stateBefore.activePlayers.contains(p) {
+                return .alreadyWon
+            }
+            return .ting(maxFan: 0)
+        }
+
         switch record.outcome {
         case .win(let win):
             _kind = State(initialValue: .win)
@@ -40,6 +50,7 @@ struct EditHandSheet: View {
             _kongPlayer = State(initialValue: win.winner)
             _kongKind = State(initialValue: .anGang)
             _kongDiscarder = State(initialValue: nil)
+            _tingStates = State(initialValue: defaultStates)
             _offender = State(initialValue: win.winner)
         case .kong(let kong):
             _kind = State(initialValue: .kong)
@@ -49,8 +60,9 @@ struct EditHandSheet: View {
             _kongPlayer = State(initialValue: kong.player)
             _kongKind = State(initialValue: kong.kind)
             _kongDiscarder = State(initialValue: kong.discarder)
+            _tingStates = State(initialValue: defaultStates)
             _offender = State(initialValue: kong.player)
-        case .drawSettlement:
+        case .drawSettlement(let settlement):
             _kind = State(initialValue: .drawSettlement)
             _winner = State(initialValue: 0)
             _selfDrawn = State(initialValue: true)
@@ -58,6 +70,7 @@ struct EditHandSheet: View {
             _kongPlayer = State(initialValue: 0)
             _kongKind = State(initialValue: .anGang)
             _kongDiscarder = State(initialValue: nil)
+            _tingStates = State(initialValue: settlement.states)
             _offender = State(initialValue: 0)
         case .falseWin(let offender):
             _kind = State(initialValue: .falseWin)
@@ -67,6 +80,7 @@ struct EditHandSheet: View {
             _kongPlayer = State(initialValue: offender)
             _kongKind = State(initialValue: .anGang)
             _kongDiscarder = State(initialValue: nil)
+            _tingStates = State(initialValue: defaultStates)
             _offender = State(initialValue: offender)
         case .drawn:
             _kind = State(initialValue: .drawn)
@@ -76,6 +90,7 @@ struct EditHandSheet: View {
             _kongPlayer = State(initialValue: 0)
             _kongKind = State(initialValue: .anGang)
             _kongDiscarder = State(initialValue: nil)
+            _tingStates = State(initialValue: defaultStates)
             _offender = State(initialValue: 0)
         case .manual:
             _kind = State(initialValue: .manual)
@@ -85,6 +100,7 @@ struct EditHandSheet: View {
             _kongPlayer = State(initialValue: 0)
             _kongKind = State(initialValue: .anGang)
             _kongDiscarder = State(initialValue: nil)
+            _tingStates = State(initialValue: defaultStates)
             _offender = State(initialValue: 0)
         }
     }
@@ -98,12 +114,12 @@ struct EditHandSheet: View {
         switch record.outcome {
         case .kong:
             return [(.kong, "刮风下雨"), (.win, "胡牌"), (.falseWin, "诈胡")]
-        case .drawSettlement:
-            return [(.drawSettlement, "荒庄查叫"), (.drawn, "普通流局")]
+        case .drawSettlement, .drawn:
+            return [(.drawSettlement, "查叫与退税"), (.drawn, "直接流局")]
         case .manual:
             return [(.manual, "直接改分")]
         default:
-            return [(.win, "胡牌"), (.kong, "刮风下雨"), (.drawn, "流局"), (.falseWin, "诈胡")]
+            return [(.win, "胡牌"), (.kong, "刮风下雨"), (.drawSettlement, "流局查叫"), (.falseWin, "诈胡")]
         }
     }
 
@@ -131,7 +147,7 @@ struct EditHandSheet: View {
             let tile = record.kong?.tile
             return .kong(KongRecord(player: kongPlayer, kind: kongKind, discarder: kongDiscarder, tile: tile))
         case .drawSettlement:
-            return record.outcome
+            return .drawSettlement(DrawSettlementRecord(states: tingStates))
         case .drawn:
             return .drawn
         case .falseWin:
@@ -184,7 +200,7 @@ struct EditHandSheet: View {
                     switch kind {
                     case .win: winSection
                     case .kong: kongSection
-                    case .drawSettlement: note("荒庄查花猪、查大叫与自动退税由本局刮风下雨流水自动联动计算。若需重录，可删掉本条后在牌桌点「流局查叫」。")
+                    case .drawSettlement: drawSettlementSection
                     case .drawn: note("本局荒庄流局，不计分并进入下一局。")
                     case .falseWin: falseWinSection
                     case .manual: note("直接改的分不能在这里改。要重填就删掉这一条，再从右上角「直接改分」记一条。")
@@ -208,7 +224,7 @@ struct EditHandSheet: View {
                 }
                 .buttonStyle(.primary)
                 .disabled(blockedReason != nil)
-                Button("删掉这一笔记录") { confirmDelete = true }
+                Button("删掉这一条") { confirmDelete = true }
                     .buttonStyle(.text)
             }
             .page()
@@ -310,9 +326,9 @@ struct EditHandSheet: View {
             .padding(.bottom, 10)
         SegmentedSwitch(
             options: [
-                (KongRecord.Kind.zhiGang, "直杠(2倍)"),
-                (KongRecord.Kind.baGang, "巴杠(1倍)"),
-                (KongRecord.Kind.anGang, "暗杠(2倍)"),
+                (KongRecord.Kind.anGang, "下雨·暗杠"),
+                (KongRecord.Kind.baGang, "刮风·巴杠"),
+                (KongRecord.Kind.zhiGang, "刮风·直杠"),
             ],
             selection: $kongKind
         )
@@ -329,6 +345,77 @@ struct EditHandSheet: View {
             }
             .padding(.top, 10)
         }
+    }
+
+    // MARK: 荒庄查叫与退税
+
+    private var someoneNotTing: Bool {
+        tingStates.contains(.notTing)
+    }
+
+    @ViewBuilder
+    private var drawSettlementSection: some View {
+        let stateBefore = game.roundState(beforeRecord: record.id)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<4, id: \.self) { p in
+                if tingStates[p] != .alreadyWon {
+                    let kongGain = stateBefore.refundableKongGain(for: p)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text(game.players[p].name)
+                                .font(.system(size: 16, weight: .medium))
+                            if kongGain > 0 && tingStates[p].needsTaxRefund {
+                                Text("自动退杠 -\(kongGain)")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Theme.vermilion)
+                            }
+                            Spacer()
+                        }
+                        HStack(spacing: 8) {
+                            ChoiceChip(title: "下叫了", selected: isTing(tingStates[p])) {
+                                if !isTing(tingStates[p]) { tingStates[p] = .ting(maxFan: 0) }
+                            }
+                            ChoiceChip(title: "没下叫", selected: tingStates[p] == .notTing) {
+                                tingStates[p] = .notTing
+                            }
+                            ChoiceChip(title: "花猪", selected: tingStates[p] == .huaZhu) {
+                                tingStates[p] = .huaZhu
+                            }
+                        }
+                        if someoneNotTing, case .ting(let maxFan, _) = tingStates[p] {
+                            let cap = game.rules.fanCap > 0 ? game.rules.fanCap : 5
+                            HStack(spacing: 6) {
+                                Text("大叫")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Theme.gray)
+                                ForEach(0...cap, id: \.self) { fan in
+                                    Button {
+                                        tingStates[p] = .ting(maxFan: fan)
+                                    } label: {
+                                        Text("\(fan)番")
+                                            .font(.system(size: 13, weight: maxFan == fan ? .semibold : .regular))
+                                            .foregroundStyle(maxFan == fan ? .white : Theme.ink)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(maxFan == fan ? Theme.ink : Color.clear, in: Capsule())
+                                            .overlay(Capsule().strokeBorder(maxFan == fan ? Theme.ink : Theme.line))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 14)
+                    Hairline(color: Theme.lineSoft)
+                }
+            }
+        }
+        .padding(.top, 12)
+    }
+
+    private func isTing(_ state: PlayerTingState) -> Bool {
+        if case .ting = state { return true }
+        return false
     }
 
     // MARK: 诈胡

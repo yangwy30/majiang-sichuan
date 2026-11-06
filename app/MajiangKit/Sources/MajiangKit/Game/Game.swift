@@ -543,6 +543,11 @@ public struct Game: Identifiable, Hashable, Codable, Sendable {
         liveRound.handIndex
     }
 
+    /// 实际已经打过的局数（若当前局里已经有过刮风下雨或胡牌记录，提前结束结算时也算 1 局）。
+    public var playedHandsCount: Int {
+        currentHandIndex + (liveRound.events.isEmpty ? 0 : 1)
+    }
+
     public var isFinished: Bool { endedAt != nil || currentHandIndex >= rules.totalHands }
 
     public var remainingHands: Int { max(0, rules.totalHands - currentHandIndex) }

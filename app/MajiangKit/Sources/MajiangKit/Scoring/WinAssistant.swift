@@ -259,6 +259,16 @@ public enum WinAssistant {
         )
     }
 
+    /// 便捷重载：直接传入 13 张手牌 `Hand` 与本桌规则 `GameRules`（自动带上门清、中张设置）。
+    public static func checkTing(_ hand: Hand, rules: GameRules) -> TingCheckResult {
+        checkTing(
+            melds: hand.melds,
+            standing: hand.concealed,
+            allowMenQing: rules.allowMenQing,
+            allowZhongZhang: rules.allowZhongZhang
+        )
+    }
+
     /// 对一个 `Hand`（13 张或 14 张）直接查花猪/查大叫。若传入 14 张则自动去掉最后一张按 13 张查叫。
     public static func checkTing(
         hand: Hand,
