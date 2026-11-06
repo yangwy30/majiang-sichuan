@@ -1,309 +1,313 @@
 import SwiftUI
 import MajiangKit
 
+/// 牌桌，也是账本：上面按座位画四个人，往下滚是每一笔记录。
 struct TableView: View {
     @Environment(AppModel.self) private var model
     let gameID: UUID
 
-    @State private var showRoundFlow = false
-    @State private var showKongSheet = false
-    @State private var showDrawSettlementSheet = false
-    @State private var showFalseWin = false
-    @State private var showManual = false
-    @State private var showRules = false
-    @State private var editingRecord: HandRecord?
+    @State private var recording = false
+    @State private var showKong = false
+    @State private var showDraw = false
+    @State private var manualScoring = false
+    @State private var showGuide = false
+    @State private var editingRules = false
+    @State private var confirmEnd = false
+    @State private var pickingFalseWin = false
+    /// 点开要改的那一笔。
+    @State private var editing: EditTarget?
     @State private var recordError: String?
+    /// 刚记下的一笔，底部显示 8 秒「撤销」（牌桌上大家还在说话，5 秒常常反应不过来）。
+    @State private var justRecorded: HandRecord?
+    @State private var undoTimer: Task<Void, Never>?
+    /// 这一页有多高：矮屏方桌画小一点。
+    @State private var pageHeight: CGFloat = 0
+    /// 点了撤销就加一，触发一下轻震。
+    @State private var undoCount = 0
 
     var body: some View {
-        Group {
-            if let game = model.game(gameID) {
-                content(game)
-            } else {
-                ContentUnavailableView("牌局不存在", systemImage: "rectangle.portrait.slash")
-            }
+        if let game = model.game(gameID) {
+            content(game)
+        } else {
+            ContentUnavailableView("找不到这场牌局", systemImage: "questionmark")
         }
-        .page()
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden()
-        .toolbar {
-            NavBack("牌局") { model.path.removeAll() }
-            if let game = model.game(gameID) {
-                NavTool {
-                    Menu {
-                        Button("刮风 / 下雨（记杠）") { showKongSheet = true }
-                        Button("荒庄流局（查花猪 / 查大叫 / 自动退税）") { showDrawSettlementSheet = true }
-                        Button("普通荒庄（不查叫直接下一局）") { recordDraw() }
-                        Button("有人诈胡（赔罚分）") { showFalseWin = true }
-                        Button("直接改分") { showManual = true }
-                        Divider()
-                        Button("这场家规") { showRules = true }
-                        Button("发战报到群里") { ShareSheet.share(game) }
-                        if !game.records.isEmpty {
-                            Button("撤销上一笔") { undo() }
-                        }
-                        Divider()
-                        Button("结束牌局并结算") {
-                            if var g = model.game(gameID) {
-                                g.end()
-                                model.update(g)
-                            }
-                            model.path = [.settle(gameID)]
-                        }
-                    } label: {
-                        Text("更多")
-                    }
-                    .buttonStyle(NavButtonStyle())
-                }
-            }
+    }
+
+    /// 从结算页点「看每一局」进来的回结算，平时回首页。
+    private var backTitle: String {
+        if model.path.count >= 2, case .settle = model.path[model.path.count - 2] { return "结算" }
+        return "首页"
+    }
+
+    private func winButtonTitle(_ game: Game) -> String {
+        if game.rules.mode == .xuezhan {
+            let count = game.liveRound.wonPlayers.count
+            if count == 1 { return "又有人胡了（二胡）" }
+            if count == 2 { return "又有人胡了（三胡）" }
         }
-        .task {
-            #if DEBUG
-            if let screen = model.demoScreen {
-                if screen.opensRound && !showRoundFlow { showRoundFlow = true }
-                if screen == .editHand, editingRecord == nil { editingRecord = model.game(gameID)?.records.first }
-                if screen == .gameRules && !showRules { showRules = true }
-            }
-            #endif
+        return "有人胡了"
+    }
+
+    private func drawButtonTitle(_ game: Game) -> String {
+        if !game.liveRound.events.isEmpty {
+            return "牌摸完了（流局 / 退税）"
+        }
+        return "这局没人胡"
+    }
+
+    private func undoTitle(_ record: HandRecord, in game: Game) -> String {
+        switch record.outcome {
+        case .kong(let kong):
+            return "已记下 · \(game.players[kong.player].name)\(kong.kind.shortName)"
+        case .win(let win):
+            return "已记下 · \(game.players[win.winner].name)胡牌"
+        default:
+            return "已记下第 \(record.handIndex + 1) 局"
         }
     }
 
     private func content(_ game: Game) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                statusHeader(game)
-                    .padding(.bottom, 14)
+                // 家规跟标准血战不一样时才露一行，点开能改
+                if let badge = game.rules.houseRuleBadge {
+                    Button { editingRules = true } label: {
+                        Text(badge + " ›")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.gray)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Theme.lineSoft, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+                }
 
-                TableDiagram(game: game)
+                // 矮屏（SE、mini）方桌小一圈，账本多露出一行
+                TableDiagram(game: game, compact: pageHeight > 0 && pageHeight < 700)
+                    .padding(.top, 10)
 
-                inRoundActionStrip(game)
-                    .padding(.top, 16)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("账本").font(.system(size: 14, weight: .medium))
+                    Spacer()
+                    Text(game.isFinished ? "打了 \(game.currentHandIndex) 局"
+                         : "第 \(min(game.currentHandIndex + 1, game.rules.totalHands)) / \(game.rules.totalHands) 局")
+                        .font(.system(size: 14))
+                }
+                .foregroundStyle(Theme.gray)
+                .padding(.top, 26)
+                .padding(.bottom, 6)
+                Hairline()
 
-                ledger(game)
-                    .padding(.top, 26)
+                if game.records.isEmpty {
+                    Text("还没有记录。有人胡了点下面黑按钮，中途开杠点「刮风下雨」。")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.gray)
+                        .padding(.vertical, 14)
+                }
+                ForEach(Array(game.records.enumerated().reversed()), id: \.element.id) { index, record in
+                    Button {
+                        open(record, number: index + 1)
+                    } label: {
+                        RecordRow(number: index + 1, record: record, game: game)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(record.isWin ? "点一下看这一把怎么胡的" : "点一下可以改或删掉这一条")
+                }
+                if !game.records.isEmpty && !model.isSeasoned {
+                    Text("点一条记录，看那把怎么胡的；记错了也在里面改。")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.gray)
+                        .padding(.top, 14)
+                        .padding(.bottom, 8)
+                }
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
         .bottomBar {
+            if let record = justRecorded {
+                UndoBar(text: undoTitle(record, in: game)) { undo(record) }
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if game.isFinished {
-                Button("看结算单") { model.path.append(.settle(gameID)) }
+                Button("看结算") { settle(game) }
                     .buttonStyle(.primary)
             } else {
-                Button(winButtonTitle(game)) { showRoundFlow = true }
+                Button(winButtonTitle(game)) { recording = true }
                     .buttonStyle(.primary)
+                HStack(spacing: 18) {
+                    Button("刮风下雨") { showKong = true }
+                        .buttonStyle(.text)
+                    Text("·")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.faint)
+                    Button(drawButtonTitle(game)) { showDraw = true }
+                        .buttonStyle(.text)
+                }
             }
         }
-        .fullScreenCover(isPresented: $showRoundFlow) {
-            RoundFlowView(game: game, mode: .win, demo: model.demoScreen) { outcome, photo in
-                apply(outcome, photo: photo)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
+        .page()
+        .sensoryFeedback(.success, trigger: justRecorded?.id) { _, new in new != nil }
+        .sensoryFeedback(.impact(weight: .light), trigger: undoCount)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
+        .toolbar {
+            NavBack(backTitle) { model.path.removeLast() }
+            NavTool {
+                Button("发到群") { ShareSheet.share(game) }
+                    .accessibilityLabel("把账本发到群里")
+            }
+            NavTool {
+                Menu {
+                    if !game.isFinished {
+                        Button("有人诈胡了") { pickingFalseWin = true }
+                    }
+                    Button("直接改分") { manualScoring = true }
+                    Button("这场的规则") { editingRules = true }
+                    Button("规则和番种说明") { showGuide = true }
+                    Divider()
+                    if !game.isFinished {
+                        Button("结束牌局", role: .destructive) { confirmEnd = true }
+                    }
+                } label: {
+                    Text("更多")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Theme.gray)
+                        .fixedSize()
+                        .frame(minHeight: 44)
+                }
             }
         }
-        .sheet(isPresented: $showKongSheet) {
-            KongSheet(game: game) { kong in
-                recordKong(kong)
+        .confirmationDialog("谁诈胡了？", isPresented: $pickingFalseWin, titleVisibility: .visible) {
+            ForEach(0..<4, id: \.self) { i in
+                Button(game.players[i].name) { record { try $0.recordFalseWin(offender: i) } }
             }
+        } message: {
+            Text("推倒了却没缺一门或凑不成胡牌：赔在场每家各 \(game.rules.falseWinPenalty) 分，这一局接着打。")
         }
-        .sheet(isPresented: $showDrawSettlementSheet) {
-            DrawSettlementSheet(game: game) { states in
-                recordDrawSettlement(states)
-            } onPlainDraw: {
-                recordDraw()
-            }
-        }
-        .sheet(isPresented: $showFalseWin) {
-            FalseWinSheet(game: game) { offender in
-                recordFalseWin(offender)
-            }
-        }
-        .sheet(isPresented: $showManual) {
-            ManualScoreSheet(game: game) { deltas, note in
-                recordManual(deltas: deltas, note: note)
-            }
-        }
-        .sheet(isPresented: $showRules) {
-            GameRulesSheet(game: game) { newRules in
-                changeRules(newRules)
-            }
-        }
-        .sheet(item: $editingRecord) { record in
-            let number = (game.records.firstIndex { $0.id == record.id } ?? 0) + 1
-            EditHandSheet(game: game, record: record, number: number) { outcome in
-                replace(record.id, with: outcome)
+        .sheet(item: $editing) { target in
+            EditHandSheet(game: game, record: target.record, number: target.number) { outcome in
+                edit { try $0.replace(target.record.id, with: outcome) }
             } onDelete: {
-                delete(record.id)
+                edit { $0.remove(target.record.id) }
+                HandPhotos.delete(target.record.id)
             }
         }
-        .alert("记不上", isPresented: Binding(get: { recordError != nil }, set: { if !$0 { recordError = nil } })) {
+        .alert("结束这场牌局？", isPresented: $confirmEnd) {
+            Button("结束", role: .destructive) { settle(game) }
+            Button("再打会儿", role: .cancel) {}
+        } message: {
+            Text("结束后就不能再记了，会算出谁该给谁转多少。")
+        }
+        .fullScreenCover(isPresented: $recording) {
+            RoundFlowView(game: game, mode: .win, demo: model.demoScreen) { outcome, photo in
+                switch outcome {
+                case .win(let win):
+                    if let saved = record({ try $0.recordWin(win) }), let photo { HandPhotos.save(photo, for: saved.id) }
+                case .falseWin(let offender):
+                    record { try $0.recordFalseWin(offender: offender) }
+                default:
+                    break
+                }
+            }
+        }
+        .sheet(isPresented: $showKong) {
+            KongSheet(game: game) { kong in
+                record { try $0.recordKong(kong) }
+            }
+        }
+        .sheet(isPresented: $showDraw) {
+            DrawSheet(game: game) { states in
+                record { try $0.recordDrawSettlement(states: states) }
+            } onPlainDraw: {
+                record { try $0.recordDraw() }
+            }
+        }
+        .sheet(isPresented: $manualScoring) {
+            ManualScoreView(game: game) { deltas, note in
+                record { try $0.recordManual(deltas: deltas, note: note) }
+            }
+        }
+        .sheet(isPresented: $showGuide) { RulesGuideView() }
+        .sheet(isPresented: $editingRules) {
+            GameRulesSheet(game: game, draft: demoRulesDraft(game)) { rules in
+                edit { try $0.changeRules(rules) }
+            }
+        }
+        .onAppear {
+            if model.demoScreen == .table { justRecorded = game.records.last }
+            if model.demoScreen == .editHand, game.records.count > 1 {
+                editing = EditTarget(record: game.records[1], number: 2)
+            }
+            if model.demoScreen?.opensRound == true { recording = true }
+            if model.demoScreen == .gameRules { editingRules = true }
+        }
+        .alert("没有记上", isPresented: Binding(get: { recordError != nil }, set: { if !$0 { recordError = nil } })) {
             Button("好") { recordError = nil }
         } message: {
             Text(recordError ?? "")
         }
     }
 
-    private func winButtonTitle(_ game: Game) -> String {
-        if game.rules.mode == .xuezhan {
-            let nextOrder = game.liveRound.wonPlayers.count + 1
-            let labels = ["", "记一胡（拍照算番）", "记二胡（只收未胡 2 家）", "记三胡（收未胡最后 1 家）"]
-            if (1...3).contains(nextOrder) {
-                return labels[nextOrder]
-            }
-        }
-        return "胡牌算番（拍照 / 手选）"
+    private func demoRulesDraft(_ game: Game) -> GameRules? {
+        guard model.demoScreen == .gameRules else { return nil }
+        var rules = game.rules
+        rules.basePoints = 5
+        return rules
     }
 
-    // MARK: 顶栏与局内快捷操作条
-
-    private func statusHeader(_ game: Game) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(game.isFinished ? "打完了" : "\(game.handLabel) · \(game.rules.mode.name)")
-                .font(.system(size: 32, weight: .semibold))
-                .tracking(-0.5)
-            Button { showRules = true } label: {
-                Text((game.isFinished
-                      ? "一共 \(game.currentHandIndex) 局"
-                      : "\(game.players[game.dealer].name)坐庄 · 还剩 \(game.remainingHands) 局")
-                     + " · \(game.rulesSummary)")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.gray)
-                    .multilineTextAlignment(.leading)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    @ViewBuilder
-    private func inRoundActionStrip(_ game: Game) -> some View {
-        if !game.isFinished {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Button {
-                        showKongSheet = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "wind")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("刮风 / 下雨（记杠）")
-                                .font(.system(size: 15, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        showDrawSettlementSheet = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "eye")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text(game.rules.mode == .xuezhan && !game.liveRound.wonPlayers.isEmpty
-                                 ? "荒庄查叫 / 退税"
-                                 : "流局查大叫 / 退税")
-                                .font(.system(size: 15, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if !game.liveRound.events.isEmpty {
-                    let kongCount = game.liveRound.kongs.count
-                    let winCount = game.liveRound.wonPlayers.count
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Theme.vermilion)
-                            .frame(width: 6, height: 6)
-                        Text("本局进行中：已胡 \(winCount) 把 · 刮风下雨 \(kongCount) 杠（荒庄未下叫将自动退税）")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.gray)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: 账本
-
-    private func ledger(_ game: Game) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("账本流水")
-                .padding(.bottom, 8)
-            Hairline()
-            if game.records.isEmpty {
-                Text("还没有记录。局中随时点「刮风/下雨」记杠，有人胡牌点底部「胡牌算番」，摸完荒庄点「流局查大叫 / 退税」。")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.gray)
-                    .padding(.vertical, 20)
-                Hairline()
-            } else {
-                ForEach(Array(game.records.enumerated().reversed()), id: \.element.id) { index, record in
-                    Button {
-                        if record.win != nil {
-                            model.path.append(.hand(gameID, record.id))
-                        } else {
-                            editingRecord = record
-                        }
-                    } label: {
-                        ledgerRow(game, number: index + 1, record: record)
-                    }
-                    .buttonStyle(.plain)
-                    Hairline()
-                }
-            }
-        }
-    }
-
-    private func ledgerRow(_ game: Game, number: Int, record: HandRecord) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("第\(record.handIndex + 1)局")
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
-                .foregroundStyle(Theme.gray)
-                .frame(width: 38, alignment: .leading)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(record.title(in: game))
-                    .font(.system(size: 16, weight: .medium))
-                Text(record.detail(in: game))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.gray)
-            }
-            Spacer()
-            if let value = record.headline {
-                Text(Theme.signed(value))
-                    .font(.system(size: 17).monospacedDigit())
-                    .foregroundStyle(Theme.scoreColor(value))
-            }
-        }
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
-    }
-
-    // MARK: 写入账本
-
-    private func apply(_ outcome: HandOutcome, photo: UIImage? = nil) {
-        guard var game = model.game(gameID) else { return }
+    @discardableResult
+    private func record(_ change: (inout Game) throws -> HandRecord) -> HandRecord? {
+        guard var updated = model.game(gameID) else { return nil }
         do {
-            var newRecord: HandRecord?
-            switch outcome {
-            case .kong(let kong):
-                newRecord = try game.recordKong(kong)
-            case .win(let win):
-                newRecord = try game.recordWin(win)
-            case .drawSettlement(let settlement):
-                newRecord = try game.recordDrawSettlement(states: settlement.states)
-            case .drawn:
-                newRecord = try game.recordDraw()
-            case .falseWin(let offender):
-                newRecord = try game.recordFalseWin(offender: offender)
-            case .manual(let deltas, let note):
-                newRecord = try game.recordManual(deltas: deltas, note: note)
+            let record = try change(&updated)
+            model.update(updated)
+            showUndo(for: record)
+            return record
+        } catch let error as GameError {
+            recordError = error.message
+        } catch {
+            recordError = error.localizedDescription
+        }
+        return nil
+    }
+
+    private func open(_ record: HandRecord, number: Int) {
+        guard record.isWin else {
+            editing = EditTarget(record: record, number: number)
+            return
+        }
+        undoTimer?.cancel()
+        justRecorded = nil
+        model.path.append(.hand(gameID, record.id))
+    }
+
+    private func showUndo(for record: HandRecord) {
+        undoTimer?.cancel()
+        withAnimation(.easeOut(duration: 0.2)) { justRecorded = record }
+        undoTimer = Task {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.2)) { justRecorded = nil }
+        }
+    }
+
+    private func edit(_ change: (inout Game) throws -> Void) {
+        guard var updated = model.game(gameID) else { return }
+        do {
+            try change(&updated)
+            model.update(updated)
+            if let record = justRecorded, updated.records.last?.id != record.id || updated.records.last != record {
+                undoTimer?.cancel()
+                withAnimation(.easeIn(duration: 0.2)) { justRecorded = nil }
             }
-            model.update(game)
-            if let photo, let id = newRecord?.id { HandPhotos.save(photo, for: id) }
-            if game.isFinished { model.path.append(.settle(gameID)) }
         } catch let error as GameError {
             recordError = error.message
         } catch {
@@ -311,155 +315,180 @@ struct TableView: View {
         }
     }
 
-    private func recordKong(_ kong: KongRecord) { apply(.kong(kong)) }
-    private func recordDrawSettlement(_ states: [PlayerTingState]) {
-        apply(.drawSettlement(DrawSettlementRecord(states: states)))
-    }
-    private func recordDraw() { apply(.drawn) }
-    private func recordFalseWin(_ offender: Int) { apply(.falseWin(offender: offender)) }
-    private func recordManual(deltas: [Int], note: String) { apply(.manual(deltas: deltas, note: note)) }
-
-    private func replace(_ id: UUID, with outcome: HandOutcome) {
-        guard var game = model.game(gameID) else { return }
-        do {
-            try game.replace(id, with: outcome)
-            model.update(game)
-        } catch let error as GameError {
-            recordError = error.message
-        } catch {
-            recordError = error.localizedDescription
-        }
+    private func undo(_ record: HandRecord) {
+        undoTimer?.cancel()
+        guard var updated = model.game(gameID), updated.records.last?.id == record.id else { return }
+        updated.undoLast()
+        model.update(updated)
+        undoCount += 1
+        HandPhotos.delete(record.id)
+        withAnimation(.easeIn(duration: 0.2)) { justRecorded = nil }
     }
 
-    private func delete(_ id: UUID) {
-        guard var game = model.game(gameID) else { return }
-        game.remove(id)
-        model.update(game)
-        HandPhotos.delete(id)
-    }
-
-    private func changeRules(_ newRules: GameRules) {
-        guard var game = model.game(gameID) else { return }
-        do {
-            try game.changeRules(newRules)
-            model.update(game)
-        } catch let error as GameError {
-            recordError = error.message
-        } catch {
-            recordError = error.localizedDescription
-        }
-    }
-
-    private func undo() {
-        guard var game = model.game(gameID) else { return }
-        if let removed = game.undoLast() { HandPhotos.delete(removed.id) }
-        model.update(game)
+    private func settle(_ game: Game) {
+        var updated = game
+        if updated.endedAt == nil { updated.end() }
+        model.update(updated)
+        model.path = [.settle(game.id)]
     }
 }
 
-// MARK: - 牌桌方位图
+private struct EditTarget: Identifiable {
+    var record: HandRecord
+    var number: Int
+    var id: UUID { record.id }
+}
 
+// MARK: - 牌桌图
+
+/// 方桌：自己总在最下面，右手边是下家、对面是对家、左手边是上家。
 private struct TableDiagram: View {
     var game: Game
+    var compact = false
 
-    private var rotated: [Int] {
-        let s = game.currentSeating
-        let myPos = s.firstIndex(of: game.me) ?? 0
-        return (0..<4).map { s[(myPos + $0) % 4] }
-    }
+    private var hand: Int { min(game.currentHandIndex, game.rules.totalHands - 1) }
 
     var body: some View {
-        let p = rotated
-        let scores = game.scores
-        let dealer = game.dealer
-
-        VStack(spacing: 14) {
-            SeatLabel(game: game, player: p[2], score: scores[p[2]], isDealer: p[2] == dealer)
-
-            HStack(spacing: 8) {
-                SeatLabel(game: game, player: p[3], score: scores[p[3]], isDealer: p[3] == dealer)
-                    .frame(maxWidth: .infinity)
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Theme.line, lineWidth: 1)
-                        .frame(width: 96, height: 96)
-                    VStack(spacing: 2) {
-                        Text(game.rules.mode.shortName)
-                            .font(Theme.serif(24, semibold: true))
-                        Text("第 \(min(game.currentHandIndex + 1, game.rules.totalHands)) 局")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.gray)
-                    }
-                }
-
-                SeatLabel(game: game, player: p[1], score: scores[p[1]], isDealer: p[1] == dealer)
-                    .frame(maxWidth: .infinity)
+        let seating = game.seating(ofRound: game.roundIndex(ofHand: hand))
+        let me = game.position(of: game.me, inHand: hand)
+        let at = { (offset: Int) in seating[(me + offset) % 4] }
+        ZStack {
+            VStack(spacing: 6) {
+                Text(game.rules.mode.shortName)
+                    .font(Theme.serif(compact ? 40 : 46))
+                Text(game.isFinished ? "打完了" : "第 \(hand + 1) 局")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.gray)
+            }
+            .frame(width: compact ? 140 : 168, height: compact ? 140 : 168)
+            .background {
+                RoundedRectangle(cornerRadius: compact ? 22 : 26, style: .continuous)
+                    .fill(Theme.white)
+                    .shadow(color: Theme.ink.opacity(0.04), radius: 1, y: 1)
+                    .shadow(color: Theme.ink.opacity(0.05), radius: 12, y: 8)
             }
 
-            SeatLabel(game: game, player: p[0], score: scores[p[0]], isDealer: p[0] == dealer)
+            SeatLabel(game: game, player: at(2), hand: hand, alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .top)
+            SeatLabel(game: game, player: at(0), hand: hand, alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            SeatLabel(game: game, player: at(3), hand: hand, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            SeatLabel(game: game, player: at(1), hand: hand, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.vertical, 16)
-        .block()
+        .frame(height: compact ? 256 : 304)
     }
 }
 
 private struct SeatLabel: View {
     var game: Game
     var player: Int
-    var score: Int
-    var isDealer: Bool
+    var hand: Int
+    var alignment: HorizontalAlignment
 
-    private var statusBadge: String? {
+    private var winTag: String? {
+        guard !game.isFinished else { return nil }
         if game.rules.mode == .xuezhan, let order = game.liveRound.xuezhanWinOrder(of: player) {
             let names = ["", "一胡", "二胡", "三胡"]
             return (1...3).contains(order) ? names[order] : "已胡"
         }
         if game.rules.mode == .xueliu {
             let count = game.liveRound.winCount(of: player)
-            if count > 0 { return "已胡×\(count)" }
+            if count > 0 { return "胡×\(count)" }
         }
         return nil
     }
 
     var body: some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 4) {
+        VStack(alignment: alignment, spacing: 2) {
+            HStack(spacing: 5) {
                 Text(game.players[player].name)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .lineLimit(1)
-                if isDealer {
-                    Text("庄")
-                        .font(Theme.serif(11, semibold: true))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Theme.vermilion, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .minimumScaleFactor(0.7)
+                if game.dealer(ofHand: hand) == player && !game.isFinished {
+                    DealerStamp(size: 18)
                 }
-                if let badge = statusBadge {
-                    Text(badge)
-                        .font(.system(size: 11, weight: .semibold))
+                if let winTag {
+                    Text(winTag)
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Theme.vermilion)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Theme.vermilion.opacity(0.12), in: Capsule())
                 }
             }
-            Text(Theme.signed(score))
-                .font(Theme.score(30))
-                .foregroundStyle(Theme.scoreColor(score))
+            Text(Theme.signed(game.scores[player]))
+                .font(Theme.score(26))
+                .foregroundStyle(Theme.scoreColor(game.scores[player]))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            Text(game.moneyText(score))
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(Theme.gray)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(game.players[player].name)\(isDealer ? "，庄" : "")\(statusBadge.map { "，\($0)" } ?? "")，\(score)分，\(game.moneyText(score))")
+        .frame(maxWidth: alignment == .center ? nil : 84,
+               alignment: alignment == .leading ? .leading : alignment == .trailing ? .trailing : .center)
     }
 }
 
-// MARK: - 刮风下雨（记杠）弹窗
+/// 账本里的一条记录。
+private struct RecordRow: View {
+    var number: Int
+    var record: HandRecord
+    var game: Game
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("\(record.handIndex + 1)")
+                    .font(.system(size: 14).monospacedDigit())
+                    .foregroundStyle(Theme.gray)
+                    .frame(width: 18, alignment: .leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(record.title(in: game)).font(.system(size: 16))
+                    Text(record.detail(in: game))
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.gray)
+                }
+                Spacer(minLength: 8)
+                if let value = record.headline {
+                    Text(Theme.signed(value))
+                        .font(.system(size: 17).monospacedDigit())
+                        .foregroundStyle(Theme.scoreColor(value))
+                } else {
+                    Text("—").font(.system(size: 17)).foregroundStyle(Theme.gray)
+                }
+            }
+            .padding(.vertical, 14)
+            Hairline(color: Theme.lineSoft)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// 记下后底部的黑色提示条。
+private struct UndoBar: View {
+    var text: String
+    var undo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(text).font(.system(size: 14))
+            Button(action: undo) {
+                Text("撤销")
+                    .font(.system(size: 14, weight: .medium))
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(.white.opacity(0.14), in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 18)
+        .padding(.trailing, 4)
+        .frame(height: 40)
+        .background(Theme.ink, in: Capsule())
+    }
+}
+
+// MARK: - 刮风下雨（记杠）
 
 private struct KongSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -484,28 +513,22 @@ private struct KongSheet: View {
         Payment.kongDeltas(kong: kong, activePlayers: game.liveRound.activePlayers, rules: game.rules)
     }
 
-    private var blockedReason: String? {
-        if !game.liveRound.activePlayers.contains(player) {
-            return "\(game.players[player].name)在本局已胡离场"
-        }
-        if kind == .zhiGang && discarder == nil {
-            return "选一下是谁点的杠"
-        }
-        return nil
+    private var canSave: Bool {
+        game.liveRound.activePlayers.contains(player) && (kind != .zhiGang || discarder != nil)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionLabel("谁开的杠")
-                        .padding(.top, 8)
+                    SectionLabel("谁杠了")
+                        .padding(.top, 12)
                         .padding(.bottom, 10)
                     HStack(spacing: 8) {
                         ForEach(0..<4, id: \.self) { i in
                             let active = game.rules.mode != .xuezhan || game.liveRound.activePlayers.contains(i)
-                            NameChip(
-                                name: active ? game.players[i].name : "\(game.players[i].name)·已胡",
+                            ChoiceChip(
+                                title: active ? game.players[i].name : "\(game.players[i].name)·已胡",
                                 selected: player == i
                             ) {
                                 player = i
@@ -516,8 +539,8 @@ private struct KongSheet: View {
                         }
                     }
 
-                    SectionLabel("刮风还是下雨")
-                        .padding(.top, 26)
+                    SectionLabel("哪种杠")
+                        .padding(.top, 24)
                         .padding(.bottom, 10)
                     SegmentedSwitch(
                         options: [
@@ -527,27 +550,27 @@ private struct KongSheet: View {
                         ],
                         selection: $kind
                     )
-                    Text(kindExplanation)
+                    Text(kindHint)
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
                         .padding(.top, 10)
 
                     if kind == .zhiGang {
-                        SectionLabel("是谁打牌点的杠？")
-                            .padding(.top, 24)
+                        SectionLabel("是谁打的？")
+                            .padding(.top, 22)
                             .padding(.bottom, 10)
                         HStack(spacing: 8) {
                             ForEach((0..<4).filter { $0 != player && (game.rules.mode != .xuezhan || game.liveRound.activePlayers.contains($0)) }, id: \.self) { i in
-                                NameChip(name: game.players[i].name, selected: discarder == i) {
+                                ChoiceChip(title: game.players[i].name, selected: discarder == i) {
                                     discarder = i
                                 }
                             }
                         }
                     }
 
-                    if blockedReason == nil {
-                        SectionLabel("这笔杠钱（若荒庄未下叫将自动退税）")
-                            .padding(.top, 26)
+                    if canSave {
+                        SectionLabel("这把谁付多少")
+                            .padding(.top, 24)
                             .padding(.bottom, 6)
                         DeltaGrid(game: game, deltas: previewDeltas)
                     }
@@ -556,15 +579,15 @@ private struct KongSheet: View {
                 .padding(.bottom, 24)
             }
             .bottomBar {
-                Button(blockedReason ?? "记入本局杠钱") {
+                Button(canSave ? "记下" : "选一下是谁打的") {
                     onRecord(kong)
                     dismiss()
                 }
                 .buttonStyle(.primary)
-                .disabled(blockedReason != nil)
+                .disabled(!canSave)
             }
             .page()
-            .navigationTitle("刮风 / 下雨（记杠）")
+            .navigationTitle("刮风下雨")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 NavClose { dismiss() }
@@ -573,21 +596,21 @@ private struct KongSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var kindExplanation: String {
+    private var kindHint: String {
         switch kind {
         case .anGang:
-            return "下雨（暗杠）：自己抓齐 4 张暗杠，向当前在场未胡每家收 \(2 * game.rules.basePoints) 分（2 倍底）。"
+            return "自己摸齐 4 张暗杠，在场未胡每家付 \(2 * game.rules.basePoints) 分。"
         case .baGang:
-            return "刮风（巴杠/弯杠）：已碰的牌自己又摸到第 4 张加杠，向当前在场未胡每家收 \(game.rules.basePoints) 分（1 倍底）。"
+            return "碰了以后又摸到第 4 张加杠，在场未胡每家付 \(game.rules.basePoints) 分。"
         case .zhiGang:
-            return "刮风（直杠/点杠）：手里一坎 3 张，别人打出第 4 张开杠，由点杠者独付 \(2 * game.rules.basePoints) 分（2 倍底）。"
+            return "别人打出的牌被你杠了，点杠的人自己付 \(2 * game.rules.basePoints) 分。"
         }
     }
 }
 
-// MARK: - 荒庄流局（查花猪 / 查大叫 / 自动退税）弹窗
+// MARK: - 牌摸完了（流局 / 退税 / 查大叫）
 
-private struct DrawSettlementSheet: View {
+private struct DrawSheet: View {
     @Environment(\.dismiss) private var dismiss
     var game: Game
     var onSettle: ([PlayerTingState]) -> Void
@@ -609,6 +632,15 @@ private struct DrawSettlementSheet: View {
         _states = State(initialValue: initial)
     }
 
+    /// 只有在场有人「没下叫」时，才需要问「下叫了」的人大叫是几番！
+    private var someoneNotTing: Bool {
+        states.contains(.notTing)
+    }
+
+    private var hasAnyPenaltyOrRefund: Bool {
+        settlementPreview.totalDeltas.contains { $0 != 0 }
+    }
+
     private var settlementPreview: (totalDeltas: [Int], taxRefundDeltas: [Int], penaltyDeltas: [Int]) {
         Payment.drawSettlementDeltas(
             states: states,
@@ -623,46 +655,44 @@ private struct DrawSettlementSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("牌墙摸完荒庄时，系统自动对「未下叫」与「花猪」玩家执行刮风下雨退税，并计算查花猪与查大叫赔付。可点「拍照查叫」直接拍 13 张手牌识别。")
+                    Text(game.liveRound.kongs.isEmpty
+                         ? "大家都下叫了就直接点下面进下一局；有人没下叫或花猪再点选。"
+                         : "有人没下叫或花猪时点一下，他这局收的杠钱会自动退回（退税）。")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.gray)
                         .padding(.top, 4)
-                        .padding(.bottom, 16)
+                        .padding(.bottom, 12)
 
                     ForEach(0..<4, id: \.self) { p in
-                        playerRow(p)
-                        Hairline()
+                        if states[p] != .alreadyWon {
+                            playerRow(p)
+                            Hairline(color: Theme.lineSoft)
+                        }
                     }
 
-                    if preview.taxRefundDeltas.contains(where: { $0 != 0 }) {
-                        SectionLabel("自动退税明细（未下叫/花猪退回本局杠钱）")
+                    if hasAnyPenaltyOrRefund {
+                        SectionLabel(preview.taxRefundDeltas.contains(where: { $0 != 0 }) ? "退税与查叫合计" : "查叫赔付")
                             .padding(.top, 22)
                             .padding(.bottom, 6)
-                        DeltaGrid(game: game, deltas: preview.taxRefundDeltas)
+                        DeltaGrid(game: game, deltas: preview.totalDeltas)
                     }
-
-                    SectionLabel("本局荒庄结算总计（含退税 + 查花猪 + 查大叫）")
-                        .padding(.top, 22)
-                        .padding(.bottom, 6)
-                    DeltaGrid(game: game, deltas: preview.totalDeltas)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
             }
             .bottomBar {
-                Button("确认荒庄结算并进入下一局") {
-                    onSettle(states)
+                Button(hasAnyPenaltyOrRefund ? "记下退税与查叫（下一局）" : "直接下一局") {
+                    if hasAnyPenaltyOrRefund {
+                        onSettle(states)
+                    } else {
+                        onPlainDraw()
+                    }
                     dismiss()
                 }
                 .buttonStyle(.primary)
-                Button("不查叫，直接流局下一局") {
-                    onPlainDraw()
-                    dismiss()
-                }
-                .buttonStyle(.text)
             }
             .page()
-            .navigationTitle("荒庄 · 查大叫与退税")
+            .navigationTitle("这局摸完了")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 NavClose { dismiss() }
@@ -676,6 +706,7 @@ private struct DrawSettlementSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     @ViewBuilder
@@ -684,74 +715,51 @@ private struct DrawSettlementSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(game.players[p].name)
-                    .font(.system(size: 17, weight: .semibold))
-                if kongGain > 0 {
-                    Text("本局收杠 +\(kongGain) 分")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(states[p].needsTaxRefund ? Theme.vermilion : Theme.gray)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background((states[p].needsTaxRefund ? Theme.vermilion : Theme.line).opacity(0.15), in: Capsule())
+                    .font(.system(size: 16, weight: .medium))
+                if kongGain > 0 && states[p].needsTaxRefund {
+                    Text("自动退杠 -\(kongGain)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.vermilion)
                 }
                 Spacer()
-                if states[p] != .alreadyWon {
-                    Button {
-                        cameraPlayer = p
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 12))
-                            Text("拍照查叫(13张)")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(Theme.vermilion)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .overlay(Capsule().strokeBorder(Theme.vermilion.opacity(0.5)))
-                    }
-                    .buttonStyle(.plain)
+                Button("拍牌帮忙看 ›") {
+                    cameraPlayer = p
+                }
+                .buttonStyle(.text(size: 13))
+            }
+
+            HStack(spacing: 8) {
+                ChoiceChip(title: "下叫了", selected: isTing(states[p])) {
+                    if !isTing(states[p]) { states[p] = .ting(maxFan: 0) }
+                }
+                ChoiceChip(title: "没下叫", selected: states[p] == .notTing) {
+                    states[p] = .notTing
+                }
+                ChoiceChip(title: "花猪", selected: states[p] == .huaZhu) {
+                    states[p] = .huaZhu
                 }
             }
 
-            if states[p] == .alreadyWon {
-                Text("本局已胡离场 · 不参与查叫与退税")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.gray)
-            } else {
-                HStack(spacing: 8) {
-                    stateChip(title: "已下叫", isSelected: isTing(states[p])) {
-                        if !isTing(states[p]) { states[p] = .ting(maxFan: 0) }
-                    }
-                    stateChip(title: "未下叫(退税)", isSelected: states[p] == .notTing) {
-                        states[p] = .notTing
-                    }
-                    stateChip(title: "花猪(赔封顶)", isSelected: states[p] == .huaZhu) {
-                        states[p] = .huaZhu
-                    }
-                }
-
-                if case .ting(let maxFan, _) = states[p] {
-                    HStack {
-                        Text("大叫番数：\(maxFan) 番（\(1 << min(game.rules.cappedFan(maxFan), 10)) 倍）")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.gray)
-                        Spacer()
-                        HStack(spacing: 6) {
-                            ForEach(0...5, id: \.self) { fan in
-                                Button {
-                                    states[p] = .ting(maxFan: fan)
-                                } label: {
-                                    Text("\(fan)番")
-                                        .font(.system(size: 13, weight: maxFan == fan ? .semibold : .regular))
-                                        .foregroundStyle(maxFan == fan ? .white : Theme.ink)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(maxFan == fan ? Theme.ink : Color.clear, in: Capsule())
-                                        .overlay(Capsule().strokeBorder(maxFan == fan ? Theme.ink : Theme.line))
-                                }
-                                .buttonStyle(.plain)
-                            }
+            // 只有场上有人「没下叫」时，才需要问「下叫了」的人大叫是几番
+            if someoneNotTing, case .ting(let maxFan, _) = states[p] {
+                let cap = game.rules.fanCap > 0 ? game.rules.fanCap : 5
+                HStack(spacing: 6) {
+                    Text("大叫")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.gray)
+                    ForEach(0...cap, id: \.self) { fan in
+                        Button {
+                            states[p] = .ting(maxFan: fan)
+                        } label: {
+                            Text("\(fan)番")
+                                .font(.system(size: 13, weight: maxFan == fan ? .semibold : .regular))
+                                .foregroundStyle(maxFan == fan ? .white : Theme.ink)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(maxFan == fan ? Theme.ink : Color.clear, in: Capsule())
+                                .overlay(Capsule().strokeBorder(maxFan == fan ? Theme.ink : Theme.line))
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -763,73 +771,15 @@ private struct DrawSettlementSheet: View {
         if case .ting = state { return true }
         return false
     }
-
-    private func stateChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(isSelected ? .white : Theme.ink)
-                .frame(maxWidth: .infinity, minHeight: 36)
-                .background(isSelected ? Theme.ink : Color.clear, in: Capsule())
-                .overlay(Capsule().strokeBorder(isSelected ? Theme.ink : Theme.line))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
-// MARK: - 诈胡 & 直接改分
+// MARK: - 直接改分
 
-private struct FalseWinSheet: View {
+/// 四个人的加减分，加起来得是 0。
+private struct ManualScoreView: View {
     @Environment(\.dismiss) private var dismiss
     var game: Game
-    var onPick: (Int) -> Void
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("诈胡（错和）的人赔给在场其余每家 \(game.rules.falseWinPenalty) 分，本局继续。")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.gray)
-                    .padding(.bottom, 16)
-                Hairline()
-                ForEach(0..<4, id: \.self) { i in
-                    Button {
-                        onPick(i)
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(game.players[i].name).font(.system(size: 17, weight: .medium))
-                            Spacer()
-                            Text("-\(game.rules.falseWinPenalty * max(1, game.liveRound.activePlayers.filter { $0 != i }.count))")
-                                .font(.system(size: 17).monospacedDigit())
-                                .foregroundStyle(Theme.gray)
-                        }
-                        .frame(minHeight: 56)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    Hairline()
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .page()
-            .navigationTitle("谁诈胡了？")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                NavClose { dismiss() }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-}
-
-private struct ManualScoreSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    var game: Game
-    var onSave: ([Int], String) -> Void
+    var save: ([Int], String) -> Void
 
     @State private var inputs = ["", "", "", ""]
     @State private var note = ""
@@ -851,7 +801,7 @@ private struct ManualScoreSheet: View {
 
                     VStack(spacing: 0) {
                         ForEach(0..<4, id: \.self) { i in
-                            if i > 0 { Hairline() }
+                            if i > 0 { Hairline(color: Theme.lineSoft) }
                             HStack {
                                 Text(game.players[i].name).font(.system(size: 17, weight: .medium))
                                 Spacer()
@@ -881,8 +831,8 @@ private struct ManualScoreSheet: View {
                 .padding(.top, 8)
             }
             .bottomBar {
-                Button("记上") {
-                    onSave(deltas, note)
+                Button("记下") {
+                    save(deltas, note)
                     dismiss()
                 }
                 .buttonStyle(.primary)

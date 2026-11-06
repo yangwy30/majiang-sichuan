@@ -137,9 +137,10 @@ public struct GameRules: Hashable, Codable, Sendable {
         return fanCap > 0 ? min(nonNegative, fanCap) : nonNegative
     }
 
-    /// 一把胡牌按几番计分（若为「自摸加番」且自摸，番数 +1 后再按封顶算）。
+    /// 一把胡牌按几番计分（若为「自摸加番」且按自摸结算，番数 +1 后再按封顶算）。
     public func paidFan(_ win: WinRecord) -> Int {
-        let raw = win.totalFan + ((win.isSelfDrawn && zimoRule == .addFan) ? 1 : 0)
+        let isZimoPayment = win.isSelfDrawn && !(win.context.gangShangHua && dianGangHuaRule == .asDianPao && win.context.dianGangDiscarder != nil)
+        let raw = win.totalFan + ((isZimoPayment && zimoRule == .addFan) ? 1 : 0)
         return cappedFan(raw)
     }
 
@@ -566,14 +567,35 @@ public struct Game: Identifiable, Hashable, Codable, Sendable {
         seating(ofRound: roundIndex(ofHand: hand)).firstIndex(of: player)!
     }
 
+    /// 四川麻将庄家规则：
+    /// - 第 1 局（hand == 0）东家坐庄；
+    /// - 后续各局：上一局第一个胡牌的人（一胡）坐庄；若上一局一炮多响（前两胡均为同一人点炮）则点炮者坐庄；若上一局荒庄没人胡，则上一局庄家连庄。
     public func dealer(ofHand hand: Int) -> Int {
-        seating(ofRound: roundIndex(ofHand: hand))[hand % 4]
+        var currentDealer = seating(ofRound: 0)[0]
+        guard hand > 0 else { return currentDealer }
+        for h in 0..<hand {
+            let handWins = records.compactMap { rec -> WinRecord? in
+                guard rec.handIndex == h, case .win(let w) = rec.outcome else { return nil }
+                return w
+            }
+            if let first = handWins.first {
+                if handWins.count >= 2,
+                   let d1 = first.discarder,
+                   handWins[1].discarder == d1 {
+                    currentDealer = d1
+                } else {
+                    currentDealer = first.winner
+                }
+            }
+        }
+        return currentDealer
     }
 
     public var dealer: Int { dealer(ofHand: currentHandIndex) }
 
     public func seatWind(of player: Int, inHand hand: Int) -> Wind {
-        let offset = (position(of: player, inHand: hand) - hand % 4 + 4) % 4
+        let d = dealer(ofHand: hand)
+        let offset = (position(of: player, inHand: hand) - position(of: d, inHand: hand) + 4) % 4
         return Wind(rawValue: offset)!
     }
 
